@@ -1,65 +1,224 @@
 <?php
 require_once 'config/conexao.php';
 
-// Se já estiver logado, redireciona direto para o painel
-if (isset($_SESSION['usuario_id'])) {
+// ============================================================
+// VERIFICAÇÃO DE SESSÃO
+// ============================================================
+
+// Se já estiver logado e possuir uma empresa válida,
+// redireciona para o painel.
+if (
+    isset($_SESSION['usuario_id']) &&
+    isset($_SESSION['empresa_id']) &&
+    (int)$_SESSION['usuario_id'] > 0 &&
+    (int)$_SESSION['empresa_id'] > 0
+) {
     header("Location: index.php?page=dashboard");
     exit;
+}
+
+// Se existir uma sessão incompleta, limpa.
+if (
+    isset($_SESSION['usuario_id']) &&
+    (
+        !isset($_SESSION['empresa_id']) ||
+        (int)$_SESSION['empresa_id'] <= 0
+    )
+) {
+    session_unset();
+    session_destroy();
+
+    // Inicia uma nova sessão para o restante da página.
+    session_start();
 }
 
 $erro = '';
 $sucesso = '';
 
-if (isset($_GET['msg']) && $_GET['msg'] === 'sucesso') {
+
+// ============================================================
+// MENSAGEM DE CADASTRO
+// ============================================================
+
+if (
+    isset($_GET['msg']) &&
+    $_GET['msg'] === 'sucesso'
+) {
     $sucesso = "Conta criada com sucesso! Faça login para continuar.";
 }
 
+
+// ============================================================
+// PROCESSAMENTO DO LOGIN
+// ============================================================
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    // Proteção CSRF
+    validar_csrf();
+
     $email = trim($_POST['email'] ?? '');
     $senha = $_POST['senha'] ?? '';
 
-    if (!empty($email) && !empty($senha)) {
+    // ========================================================
+    // VALIDAÇÃO DOS CAMPOS
+    // ========================================================
+
+    if (empty($email) || empty($senha)) {
+
+        $erro = "Preencha todos os campos.";
+
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+
+        $erro = "Informe um e-mail válido.";
+
+    } else {
+
         try {
-            $stmt = $pdo->prepare("SELECT * FROM usuarios WHERE email = ? LIMIT 1");
+
+            // =================================================
+            // BUSCA USUÁRIO
+            // =================================================
+
+            $stmt = $pdo->prepare("
+                SELECT
+                    id,
+                    nome,
+                    email,
+                    senha,
+                    empresa_id
+                FROM usuarios
+                WHERE email = ?
+                LIMIT 1
+            ");
+
             $stmt->execute([$email]);
+
             $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if ($usuario && password_verify($senha, $usuario['senha'])) {
-                // Inicia as variáveis de sessão
-                $_SESSION['usuario_id'] = $usuario['id'];
-                $_SESSION['usuario_nome'] = $usuario['nome'];
-                $_SESSION['empresa_id'] = $usuario['empresa_id'];
 
-                // Busca dados da empresa vinculada
-                $stmtEmp = $pdo->prepare("SELECT * FROM empresas WHERE id = ? LIMIT 1");
-                $stmtEmp->execute([$usuario['empresa_id']]);
-                $empresa = $stmtEmp->fetch(PDO::FETCH_ASSOC);
+            // =================================================
+            // VERIFICAÇÃO DA SENHA
+            // =================================================
 
-                if ($empresa) {
-                    $_SESSION['empresa_nome'] = $empresa['nome'] ?? $empresa['nome_fantasia'] ?? 'Minha Empresa';
-                    $_SESSION['empresa_doc']  = $empresa['cnpj_cpf'] ?? $empresa['cnpj'] ?? $empresa['cpf'] ?? '';
+            if (
+                $usuario &&
+                password_verify($senha, $usuario['senha'])
+            ) {
+
+                // =================================================
+                // VERIFICAÇÃO DA EMPRESA
+                // =================================================
+
+                $empresa_id = (int)($usuario['empresa_id'] ?? 0);
+
+                if ($empresa_id <= 0) {
+
+                    // Não permite login de usuário sem empresa válida.
+                    $erro = "Não foi possível acessar sua conta. Entre em contato com o suporte.";
+
+                } else {
+
+                    // =================================================
+                    // CONFIRMA SE A EMPRESA EXISTE
+                    // =================================================
+
+                    $stmtEmp = $pdo->prepare("
+                        SELECT *
+                        FROM empresas
+                        WHERE id = ?
+                        LIMIT 1
+                    ");
+
+                    $stmtEmp->execute([$empresa_id]);
+
+                    $empresa = $stmtEmp->fetch(PDO::FETCH_ASSOC);
+
+
+                    if (!$empresa) {
+
+                        $erro = "Não foi possível acessar sua conta. Entre em contato com o suporte.";
+
+                    } else {
+
+                        // =================================================
+                        // REGENERA O ID DA SESSÃO
+                        // =================================================
+                        // Proteção contra Session Fixation.
+
+                        session_regenerate_id(true);
+
+
+                        // =================================================
+                        // CRIAÇÃO DA SESSÃO DO USUÁRIO
+                        // =================================================
+
+                        $_SESSION['usuario_id'] = (int)$usuario['id'];
+
+                        $_SESSION['usuario_nome'] = $usuario['nome'];
+
+                        $_SESSION['empresa_id'] = $empresa_id;
+
+
+                        // =================================================
+                        // DADOS DA EMPRESA
+                        // =================================================
+
+                        $_SESSION['empresa_nome'] =
+                            $empresa['nome']
+                            ?? $empresa['nome_fantasia']
+                            ?? 'Minha Empresa';
+
+                        $_SESSION['empresa_doc'] =
+                            $empresa['cnpj_cpf']
+                            ?? $empresa['cnpj']
+                            ?? $empresa['cpf']
+                            ?? '';
+
+
+                        // =================================================
+                        // LOGIN REALIZADO
+                        // =================================================
+
+                        header("Location: index.php?page=dashboard");
+                        exit;
+                    }
                 }
 
-                header("Location: index.php?page=dashboard");
-                exit;
             } else {
+
+                // Mensagem genérica para não revelar
+                // se o e-mail existe ou não.
                 $erro = "E-mail ou senha incorretos.";
             }
+
         } catch (Throwable $e) {
-            $erro = "Erro ao autenticar: " . $e->getMessage();
+
+            // O erro real fica apenas no log do servidor.
+            error_log($e->getMessage());
+
+            $erro = "Não foi possível realizar o login. Tente novamente.";
         }
-    } else {
-        $erro = "Preencha todos os campos.";
     }
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
+
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    >
+
     <title>Entrar | Vende+</title>
+
     <style>
+
         *, *::before, *::after {
             box-sizing: border-box;
             margin: 0;
@@ -217,51 +376,130 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border: 1px solid #10b981;
             color: #34d399;
         }
+
     </style>
+
 </head>
+
 <body>
 
 <div class="auth-container">
+
     <div class="auth-card">
+
         <div class="brand-header">
-            <h1 class="logo-text">vende<span>+</span></h1>
-            <p class="brand-subtitle">Acesse seu painel financeiro</p>
+
+            <h1 class="logo-text">
+                vende<span>+</span>
+            </h1>
+
+            <p class="brand-subtitle">
+                Acesse seu painel financeiro
+            </p>
+
         </div>
 
+
         <?php if (!empty($erro)): ?>
+
             <div class="alert alert-error">
                 ⚠️ <?= htmlspecialchars($erro) ?>
             </div>
+
         <?php endif; ?>
 
+
         <?php if (!empty($sucesso)): ?>
+
             <div class="alert alert-success">
                 ✅ <?= htmlspecialchars($sucesso) ?>
             </div>
+
         <?php endif; ?>
 
+
         <form method="POST" action="">
-            <div class="form-group">
-                <label for="email">E-mail</label>
-                <input type="email" id="email" name="email" placeholder="seuemail@exemplo.com" value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required autofocus>
-            </div>
+
+            <!-- Proteção CSRF -->
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="<?= htmlspecialchars(csrf_token()) ?>"
+            >
+
 
             <div class="form-group">
-                <label for="senha">Senha</label>
-                <input type="password" id="senha" name="senha" placeholder="Sua senha de acesso" required>
+
+                <label for="email">
+                    E-mail
+                </label>
+
+                <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    placeholder="seuemail@exemplo.com"
+                    value="<?= htmlspecialchars($_POST['email'] ?? '') ?>"
+                    required
+                    autofocus
+                    autocomplete="email"
+                >
+
             </div>
+
+
+            <div class="form-group">
+
+                <label for="senha">
+                    Senha
+                </label>
+
+                <input
+                    type="password"
+                    id="senha"
+                    name="senha"
+                    placeholder="Sua senha de acesso"
+                    required
+                    autocomplete="current-password"
+                >
+
+            </div>
+
 
             <!-- Link de Recuperação -->
-            <a href="recuperar-senha.php" class="forgot-link">Esqueceu sua senha?</a>
 
-            <button type="submit" class="btn-submit">Entrar no Sistema</button>
+            <a
+                href="recuperar-senha.php"
+                class="forgot-link"
+            >
+                Esqueceu sua senha?
+            </a>
+
+
+            <button
+                type="submit"
+                class="btn-submit"
+            >
+                Entrar no Sistema
+            </button>
+
         </form>
 
+
         <div class="auth-footer">
-            Não tem uma conta? <a href="cadastro.php">Cadastre-se</a>
+
+            Não tem uma conta?
+
+            <a href="cadastro.php">
+                Cadastre-se
+            </a>
+
         </div>
+
     </div>
+
 </div>
 
 </body>
+
 </html>
