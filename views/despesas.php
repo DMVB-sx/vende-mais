@@ -10,9 +10,14 @@ $empresa_id = $_SESSION['empresa_id'] ?? 0;
 |--------------------------------------------------------------------------
 */
 
-if (isset($_GET['acao'])) {
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_POST['acao'])
+) {
 
-    $id_despesa = (int)($_GET['id'] ?? 0);
+    validar_csrf();
+
+    $id_despesa = (int)($_POST['id'] ?? 0);
 
 
     /*
@@ -22,7 +27,7 @@ if (isset($_GET['acao'])) {
     */
 
     if (
-        $_GET['acao'] === 'pagar' &&
+        $_POST['acao'] === 'pagar' &&
         $id_despesa > 0
     ) {
 
@@ -57,7 +62,7 @@ if (isset($_GET['acao'])) {
     */
 
     elseif (
-        $_GET['acao'] === 'deletar' &&
+        $_POST['acao'] === 'deletar' &&
         $id_despesa > 0
     ) {
 
@@ -365,6 +370,7 @@ $despesas =
         action="index.php?page=despesas"
     >
 
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
 
         <div class="linha-despesa">
 
@@ -719,12 +725,18 @@ $despesas =
                                     !$d['pago']
                                 ): ?>
 
-                                    <a
-                                        href="index.php?page=despesas&acao=pagar&id=<?= (int)$d['id'] ?>"
-                                        title="Marcar como Pago"
-                                    >
-                                        ✅
-                                    </a>
+                                    <form method="POST" action="index.php?page=despesas" style="display:inline;">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                                        <input type="hidden" name="acao" value="pagar">
+                                        <input type="hidden" name="id" value="<?= (int)$d['id'] ?>">
+                                        <button
+                                            type="submit"
+                                            title="Marcar como Pago"
+                                            style="background:none;border:none;cursor:pointer;font-size:inherit;padding:0;"
+                                        >
+                                            ✅
+                                        </button>
+                                    </form>
 
                                 <?php endif; ?>
 
@@ -870,12 +882,18 @@ $despesas =
                                     !$d['pago']
                                 ): ?>
 
-                                    <a
-                                        href="index.php?page=despesas&acao=pagar&id=<?= (int)$d['id'] ?>"
-                                        title="Marcar como Pago"
-                                    >
-                                        ✅
-                                    </a>
+                                    <form method="POST" action="index.php?page=despesas" style="display:inline;">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                                        <input type="hidden" name="acao" value="pagar">
+                                        <input type="hidden" name="id" value="<?= (int)$d['id'] ?>">
+                                        <button
+                                            type="submit"
+                                            title="Marcar como Pago"
+                                            style="background:none;border:none;cursor:pointer;font-size:inherit;padding:0;"
+                                        >
+                                            ✅
+                                        </button>
+                                    </form>
 
                                 <?php endif; ?>
 
@@ -1066,6 +1084,17 @@ $despesas =
 <!-- ============================================================
      MODAL EXCLUSÃO
 ============================================================ -->
+
+<form
+    id="form-excluir-despesa"
+    method="POST"
+    action="index.php?page=despesas"
+    style="display:none;"
+>
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+    <input type="hidden" name="acao" value="deletar">
+    <input type="hidden" name="id" id="input-id-despesa-excluir" value="">
+</form>
 
 <div
     id="modal-excluir-despesa"
@@ -2323,10 +2352,8 @@ function confirmarExclusaoDespesa() {
         return;
     }
 
-
-    window.location.href =
-        'index.php?page=despesas&acao=deletar&id=' +
-        despesaParaExcluir;
+    document.getElementById('input-id-despesa-excluir').value = despesaParaExcluir;
+    document.getElementById('form-excluir-despesa').submit();
 
 }
 

@@ -1,11 +1,21 @@
 <?php
 require_once 'config/conexao.php';
 
-// Se o usuário NÃO estiver logado, redireciona para o login
+session_start();
+
+// Se o usuário NÃO estiver logado e não estiver pedindo uma página específica, mostra a Landing Page
+if (!isset($_SESSION['usuario_id']) && empty($_GET['page'])) {
+    require_once 'landing.php';
+    exit;
+}
+
+// Se não estiver logado mas tentar acessar página interna, manda pro login
 if (!isset($_SESSION['usuario_id'])) {
     header("Location: login.php");
     exit;
 }
+
+// Daqui para baixo continua o código normal do seu painel/sistema...
 
 // Empresa ID dinâmica baseada na sessão do usuário logado
 $empresa_id = $_SESSION['empresa_id'];

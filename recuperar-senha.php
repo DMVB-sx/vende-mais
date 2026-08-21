@@ -10,88 +10,142 @@ if (isset($_SESSION['usuario_id'])) {
 $erro = '';
 $sucesso = '';
 $etapa = 1; // 1 = Validar conta, 2 = Digitar nova senha
-$usuario_id_recuperar = 0;
+
+// ============================================================
+// Estado da recuperação: SEMPRE vem da sessão, nunca do POST.
+// Isso impede que alguém forje o usuario_id e troque a senha
+// de qualquer conta sem passar pela verificação da Etapa 1.
+// ============================================================
+if (
+    !empty($_SESSION['reset_usuario_id']) &&
+    !empty($_SESSION['reset_expira']) &&
+    $_SESSION['reset_expira'] > time()
+) {
+    $etapa = 2;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
+    validar_csrf();
+
     // ETAPA 1: Identificação (E-mail + Nome da Empresa)
     if (isset($_POST['validar_identidade'])) {
-        $email = trim($_POST['email'] ?? '');
-        $nome_empresa = trim($_POST['nome_empresa'] ?? '');
 
-        if (!empty($email) && !empty($nome_empresa)) {
-            try {
-                // Busca o usuário e os dados da empresa vinculada usando e.* para evitar conflito de colunas
-                $stmt = $pdo->prepare("
-                    SELECT u.id AS usuario_id, u.nome AS usuario_nome, e.*
-                    FROM usuarios u
-                    JOIN empresas e ON u.empresa_id = e.id
-                    WHERE u.email = ?
-                    LIMIT 1
-                ");
-                $stmt->execute([$email]);
-                $dados = $stmt->fetch(PDO::FETCH_ASSOC);
+        // Limite simples de tentativas (evita brute-force de e-mail + empresa)
+        $_SESSION['reset_tentativas'] = ($_SESSION['reset_tentativas'] ?? 0) + 1;
+        $_SESSION['reset_tentativas_inicio'] = $_SESSION['reset_tentativas_inicio'] ?? time();
 
-                if ($dados) {
-                    // Identifica o campo correto do nome da empresa existente no banco
-                    $nomeEmpresaReal = $dados['nome'] 
-                                    ?? $dados['nome_fantasia'] 
-                                    ?? $dados['fantasia'] 
-                                    ?? $dados['razao_social'] 
-                                    ?? $dados['nome_empresa'] 
-                                    ?? '';
+        if (time() - $_SESSION['reset_tentativas_inicio'] > 900) {
+            // Passou 15 min, reseta contador
+            $_SESSION['reset_tentativas'] = 1;
+            $_SESSION['reset_tentativas_inicio'] = time();
+        }
 
-                    // Compara sem diferenciar maiúsculas/minúsculas
-                    if (!empty($nomeEmpresaReal) && strcasecmp(trim($nomeEmpresaReal), $nome_empresa) === 0) {
-                        $etapa = 2;
-                        $usuario_id_recuperar = (int)$dados['usuario_id'];
-                    } else {
-                        $erro = "O nome da empresa informada não confere com o cadastro deste e-mail.";
-                    }
-                } else {
-                    $erro = "Nenhuma conta cadastrada encontrada com este e-mail.";
-                }
-            } catch (Throwable $e) {
-                $erro = "Erro ao processar verificação: " . $e->getMessage();
-            }
+        if ($_SESSION['reset_tentativas'] > 5) {
+
+            $erro = "Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.";
+
         } else {
-            $erro = "Preencha o e-mail e o nome da sua empresa cadastrada.";
+
+            $email = trim($_POST['email'] ?? '');
+            $nome_empresa = trim($_POST['nome_empresa'] ?? '');
+
+            if (!empty($email) && !empty($nome_empresa)) {
+                try {
+                    // Busca o usuário e os dados da empresa vinculada usando e.* para evitar conflito de colunas
+                    $stmt = $pdo->prepare("
+                        SELECT u.id AS usuario_id, u.nome AS usuario_nome, e.*
+                        FROM usuarios u
+                        JOIN empresas e ON u.empresa_id = e.id
+                        WHERE u.email = ?
+                        LIMIT 1
+                    ");
+                    $stmt->execute([$email]);
+                    $dados = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($dados) {
+                        // Identifica o campo correto do nome da empresa existente no banco
+                        $nomeEmpresaReal = $dados['nome'] 
+                                        ?? $dados['nome_fantasia'] 
+                                        ?? $dados['fantasia'] 
+                                        ?? $dados['razao_social'] 
+                                        ?? $dados['nome_empresa'] 
+                                        ?? '';
+
+                        // Compara sem diferenciar maiúsculas/minúsculas
+                        if (!empty($nomeEmpresaReal) && strcasecmp(trim($nomeEmpresaReal), $nome_empresa) === 0) {
+
+                            // Identidade confirmada: guarda na SESSÃO (não no HTML)
+                            $_SESSION['reset_usuario_id'] = (int)$dados['usuario_id'];
+                            $_SESSION['reset_expira'] = time() + 600; // válido por 10 minutos
+                            unset($_SESSION['reset_tentativas']);
+
+                            $etapa = 2;
+                        } else {
+                            $erro = "O nome da empresa informada não confere com o cadastro deste e-mail.";
+                        }
+                    } else {
+                        $erro = "Nenhuma conta cadastrada encontrada com este e-mail.";
+                    }
+                } catch (Throwable $e) {
+                    error_log($e->getMessage());
+                    $erro = "Não foi possível processar a verificação. Tente novamente.";
+                }
+            } else {
+                $erro = "Preencha o e-mail e o nome da sua empresa cadastrada.";
+            }
         }
     }
 
     // ETAPA 2: Redefinição da Senha
     if (isset($_POST['salvar_nova_senha'])) {
-        $usuario_id = (int)($_POST['usuario_id'] ?? 0);
-        $nova_senha = $_POST['nova_senha'] ?? '';
-        $confirma_senha = $_POST['confirma_senha'] ?? '';
 
-        if ($usuario_id > 0 && !empty($nova_senha)) {
-            if ($nova_senha === $confirma_senha) {
-                if (strlen($nova_senha) >= 6) {
-                    try {
-                        $nova_hash = password_hash($nova_senha, PASSWORD_DEFAULT);
-                        $stmtUp = $pdo->prepare("UPDATE usuarios SET senha = ? WHERE id = ?");
-                        $stmtUp->execute([$nova_hash, $usuario_id]);
+        // Só aceita se a Etapa 1 foi validada nesta sessão e não expirou
+        if (
+            empty($_SESSION['reset_usuario_id']) ||
+            empty($_SESSION['reset_expira']) ||
+            $_SESSION['reset_expira'] <= time()
+        ) {
+            unset($_SESSION['reset_usuario_id'], $_SESSION['reset_expira']);
+            $etapa = 1;
+            $erro = "Sua sessão de verificação expirou. Comece novamente.";
 
-                        $sucesso = "Senha redefinida com sucesso! Você já pode entrar com a nova senha.";
-                        $etapa = 3; // Concluído
-                    } catch (Throwable $e) {
-                        $erro = "Erro ao atualizar senha no banco: " . $e->getMessage();
+        } else {
+
+            $usuario_id = (int)$_SESSION['reset_usuario_id'];
+            $nova_senha = $_POST['nova_senha'] ?? '';
+            $confirma_senha = $_POST['confirma_senha'] ?? '';
+
+            if (!empty($nova_senha)) {
+                if ($nova_senha === $confirma_senha) {
+                    if (strlen($nova_senha) >= 6) {
+                        try {
+                            $nova_hash = password_hash($nova_senha, PASSWORD_DEFAULT);
+                            $stmtUp = $pdo->prepare("UPDATE usuarios SET senha = ? WHERE id = ?");
+                            $stmtUp->execute([$nova_hash, $usuario_id]);
+
+                            // Encerra o estado de recuperação
+                            unset($_SESSION['reset_usuario_id'], $_SESSION['reset_expira']);
+
+                            $sucesso = "Senha redefinida com sucesso! Você já pode entrar com a nova senha.";
+                            $etapa = 3; // Concluído
+                        } catch (Throwable $e) {
+                            error_log($e->getMessage());
+                            $erro = "Não foi possível atualizar a senha. Tente novamente.";
+                            $etapa = 2;
+                        }
+                    } else {
+                        $erro = "A senha deve ter pelo menos 6 caracteres.";
                         $etapa = 2;
-                        $usuario_id_recuperar = $usuario_id;
                     }
                 } else {
-                    $erro = "A senha deve ter pelo menos 6 caracteres.";
+                    $erro = "As senhas digitadas não coincidem.";
                     $etapa = 2;
-                    $usuario_id_recuperar = $usuario_id;
                 }
             } else {
-                $erro = "As senhas digitadas não coincidem.";
+                $erro = "Dados inválidos para redefinição.";
                 $etapa = 2;
-                $usuario_id_recuperar = $usuario_id;
             }
-        } else {
-            $erro = "Dados inválidos para redefinição.";
         }
     }
 }
@@ -269,6 +323,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php if ($etapa === 1): ?>
             <!-- ETAPA 1: Identificação -->
             <form method="POST" action="">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+
                 <div class="form-group">
                     <label>Seu E-mail Cadastrado</label>
                     <input type="email" name="email" placeholder="seuemail@exemplo.com" value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required autofocus>
@@ -285,7 +341,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php elseif ($etapa === 2): ?>
             <!-- ETAPA 2: Digitar Nova Senha -->
             <form method="POST" action="">
-                <input type="hidden" name="usuario_id" value="<?= $usuario_id_recuperar ?>">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
 
                 <div class="form-group">
                     <label>Nova Senha</label>

@@ -6,7 +6,9 @@ $abaAtiva = 'aba-geral';
 
 // 1. Processar Atualizações
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    
+
+    validar_csrf();
+
     // Atualizar Dados Gerais (Perfil + Empresa)
     if (isset($_POST['atualizar_geral'])) {
         $abaAtiva = 'aba-geral';
@@ -76,7 +78,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $mensagem = '<div class="alert success">✅ Dados salvos com sucesso!</div>';
                 }
             } catch (Throwable $e) {
-                $mensagem = '<div class="alert error">⚠️ Erro ao atualizar dados: ' . htmlspecialchars($e->getMessage()) . '</div>';
+                error_log($e->getMessage());
+                $mensagem = '<div class="alert error">⚠️ Erro ao atualizar dados. Tente novamente.</div>';
             }
         } else {
             $mensagem = '<div class="alert error">⚠️ Preencha os campos obrigatórios (Nome, E-mail e Nome da Empresa).</div>';
@@ -112,7 +115,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $mensagem = '<div class="alert error">⚠️ A senha atual informada está incorreta.</div>';
             }
         } catch (Throwable $e) {
-            $mensagem = '<div class="alert error">⚠️ Erro ao atualizar senha: ' . htmlspecialchars($e->getMessage()) . '</div>';
+            error_log($e->getMessage());
+            $mensagem = '<div class="alert error">⚠️ Erro ao atualizar senha. Tente novamente.</div>';
         }
     }
 }
@@ -309,6 +313,7 @@ $telefoneAtual    = $empresa['telefone'] ?? '';
     </div>
 
     <form method="POST" id="form-geral">
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
       <div class="section-divider">Dados do Usuário</div>
 
       <div class="form-group">
@@ -359,6 +364,7 @@ $telefoneAtual    = $empresa['telefone'] ?? '';
     </div>
 
     <form method="POST">
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
       <div class="form-group">
         <label>Senha Atual</label>
         <input type="password" name="senha_atual" required placeholder="Digite sua senha atual">

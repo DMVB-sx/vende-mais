@@ -11,6 +11,8 @@ $erro = '';
 $sucesso = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    validar_csrf();
+
     $nome_empresa = trim($_POST['nome_empresa'] ?? '');
     $nome_usuario = trim($_POST['nome_usuario'] ?? '');
     $email        = trim($_POST['email'] ?? '');
@@ -56,7 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
-                $erro = "Ocorreu um erro ao criar a conta: " . $e->getMessage();
+                error_log($e->getMessage());
+                $erro = "Ocorreu um erro ao criar a conta. Tente novamente.";
             }
         }
     } else {
@@ -228,6 +231,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <form method="POST" action="">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+
             <div class="form-group">
                 <label for="nome_empresa">Nome da Empresa / Fantasia</label>
                 <input type="text" id="nome_empresa" name="nome_empresa" placeholder="Ex: Minha Loja" value="<?= htmlspecialchars($_POST['nome_empresa'] ?? '') ?>" required autofocus>
