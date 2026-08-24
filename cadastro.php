@@ -44,15 +44,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $empresa_id = $pdo->lastInsertId();
 
                     // 3. Cria o usuário com a senha criptografada
-                    $senha_hash = password_hash($senha, PASSWORD_DEFAULT);
-                    $stmtUser = $pdo->prepare("INSERT INTO usuarios (empresa_id, nome, email, senha) VALUES (?, ?, ?, ?)");
-                    $stmtUser->execute([$empresa_id, $nome_usuario, $email, $senha_hash]);
+$senha_hash = password_hash($senha, PASSWORD_DEFAULT);
 
-                    $pdo->commit();
+// Gera um token único para confirmação do e-mail
+$token_verificacao = bin2hex(random_bytes(32));
 
-                    // Redireciona com aviso ou faz login direto
-                    header("Location: login.php?msg=sucesso");
-                    exit;
+// Token válido por 24 horas
+$token_expira = date('Y-m-d H:i:s', strtotime('+24 hours'));
+
+$stmtUser = $pdo->prepare("
+    INSERT INTO usuarios (
+        empresa_id,
+        nome,
+        email,
+        senha,
+        email_verificado,
+        token_verificacao,
+        token_expira
+    ) VALUES (?, ?, ?, ?, 0, ?, ?)
+");
+
+$stmtUser->execute([
+    $empresa_id,
+    $nome_usuario,
+    $email,
+    $senha_hash,
+    $token_verificacao,
+    $token_expira
+]);
+
+$pdo->commit();
+
+// Por enquanto vamos apenas redirecionar.
+// O envio do e-mail será colocado no próximo passo.
+header("Location: login.php?msg=verifique_email");
+exit;
                 }
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {

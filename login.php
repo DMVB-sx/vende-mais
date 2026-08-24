@@ -1,230 +1,81 @@
 <?php
-require_once 'config/conexao.php';
-
-// ============================================================
-// VERIFICAÇÃO DE SESSÃO
-// ============================================================
-
-// Se já estiver logado e possuir uma empresa válida,
-// redireciona para o painel.
-if (
-    isset($_SESSION['usuario_id']) &&
-    isset($_SESSION['empresa_id']) &&
-    (int)$_SESSION['usuario_id'] > 0 &&
-    (int)$_SESSION['empresa_id'] > 0
-) {
-    header("Location: index.php?page=dashboard");
-    exit;
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
 }
 
-// Se existir uma sessão incompleta, limpa.
-if (
-    isset($_SESSION['usuario_id']) &&
-    (
-        !isset($_SESSION['empresa_id']) ||
-        (int)$_SESSION['empresa_id'] <= 0
-    )
-) {
-    session_unset();
-    session_destroy();
+require_once 'config/conexao.php';
 
-    // Inicia uma nova sessão para o restante da página.
-    session_start();
+// Se já estiver logado, redireciona
+if (isset($_SESSION['usuario_id']) && (int)$_SESSION['usuario_id'] > 0) {
+    header("Location: index.php?page=dashboard");
+    exit;
 }
 
 $erro = '';
 $sucesso = '';
 
-
-// ============================================================
-// MENSAGEM DE CADASTRO
-// ============================================================
-
-if (
-    isset($_GET['msg']) &&
-    $_GET['msg'] === 'sucesso'
-) {
+if (isset($_GET['msg']) && $_GET['msg'] === 'sucesso') {
     $sucesso = "Conta criada com sucesso! Faça login para continuar.";
 }
 
-
-// ============================================================
-// PROCESSAMENTO DO LOGIN
-// ============================================================
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-
-    // Proteção CSRF
-    validar_csrf();
-
     $email = trim($_POST['email'] ?? '');
     $senha = $_POST['senha'] ?? '';
 
-    // ========================================================
-    // VALIDAÇÃO DOS CAMPOS
-    // ========================================================
-
     if (empty($email) || empty($senha)) {
-
         $erro = "Preencha todos os campos.";
-
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-
         $erro = "Informe um e-mail válido.";
-
     } else {
-
         try {
-
-            // =================================================
-            // BUSCA USUÁRIO
-            // =================================================
-
-            $stmt = $pdo->prepare("
-                SELECT
-                    id,
-                    nome,
-                    email,
-                    senha,
-                    empresa_id
-                FROM usuarios
-                WHERE email = ?
-                LIMIT 1
-            ");
-
+            $stmt = $pdo->prepare("SELECT id, nome, email, senha, empresa_id FROM usuarios WHERE email = ? LIMIT 1");
             $stmt->execute([$email]);
-
             $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
 
-
-            // =================================================
-            // VERIFICAÇÃO DA SENHA
-            // =================================================
-
-            if (
-                $usuario &&
-                password_verify($senha, $usuario['senha'])
-            ) {
-
-                // =================================================
-                // VERIFICAÇÃO DA EMPRESA
-                // =================================================
-
+            if ($usuario && password_verify($senha, $usuario['senha'])) {
                 $empresa_id = (int)($usuario['empresa_id'] ?? 0);
 
-                if ($empresa_id <= 0) {
+                // Grava a sessão
+                $_SESSION['usuario_id']   = (int)$usuario['id'];
+                $_SESSION['usuario_nome'] = $usuario['nome'];
+                $_SESSION['empresa_id']   = $empresa_id;
 
-                    // Não permite login de usuário sem empresa válida.
-                    $erro = "Não foi possível acessar sua conta. Entre em contato com o suporte.";
-
-                } else {
-
-                    // =================================================
-                    // CONFIRMA SE A EMPRESA EXISTE
-                    // =================================================
-
-                    $stmtEmp = $pdo->prepare("
-                        SELECT *
-                        FROM empresas
-                        WHERE id = ?
-                        LIMIT 1
-                    ");
-
+                // Busca dados da empresa
+                if ($empresa_id > 0) {
+                    $stmtEmp = $pdo->prepare("SELECT * FROM empresas WHERE id = ? LIMIT 1");
                     $stmtEmp->execute([$empresa_id]);
-
-                    $empresa = $stmtEmp->fetch(PDO::FETCH_ASSOC);
-
-
-                    if (!$empresa) {
-
-                        $erro = "Não foi possível acessar sua conta. Entre em contato com o suporte.";
-
-                    } else {
-
-                        // =================================================
-                        // REGENERA O ID DA SESSÃO
-                        // =================================================
-                        // Proteção contra Session Fixation.
-
-                        session_regenerate_id(true);
-
-
-                        // =================================================
-                        // CRIAÇÃO DA SESSÃO DO USUÁRIO
-                        // =================================================
-
-                        $_SESSION['usuario_id'] = (int)$usuario['id'];
-
-                        $_SESSION['usuario_nome'] = $usuario['nome'];
-
-                        $_SESSION['empresa_id'] = $empresa_id;
-
-
-                        // =================================================
-                        // DADOS DA EMPRESA
-                        // =================================================
-
-                        $_SESSION['empresa_nome'] =
-                            $empresa['nome']
-                            ?? $empresa['nome_fantasia']
-                            ?? 'Minha Empresa';
-
-                        $_SESSION['empresa_doc'] =
-                            $empresa['cnpj_cpf']
-                            ?? $empresa['cnpj']
-                            ?? $empresa['cpf']
-                            ?? '';
-
-
-                        // =================================================
-                        // LOGIN REALIZADO
-                        // =================================================
-
-                        header("Location: index.php?page=dashboard");
-                        exit;
+                    $emp = $stmtEmp->fetch(PDO::FETCH_ASSOC);
+                    if ($emp) {
+                        $_SESSION['empresa_nome'] = $emp['nome'] ?? $emp['nome_fantasia'] ?? 'Minha Empresa';
+                        $_SESSION['empresa_doc']  = $emp['cnpj_cpf'] ?? $emp['cnpj'] ?? $emp['cpf'] ?? '';
                     }
                 }
 
-            } else {
+                // Salva a sessão no servidor antes de redirecionar
+                session_write_close();
 
-                // Mensagem genérica para não revelar
-                // se o e-mail existe ou não.
+                // Redirecionamento duplo (PHP Header + fallback JS)
+                header("Location: index.php?page=dashboard");
+                echo "<script>window.location.href='index.php?page=dashboard';</script>";
+                exit;
+            } else {
                 $erro = "E-mail ou senha incorretos.";
             }
-
         } catch (Throwable $e) {
-
-            // O erro real fica apenas no log do servidor.
             error_log($e->getMessage());
-
-            $erro = "Não foi possível realizar o login. Tente novamente.";
+            $erro = "Erro ao autenticar: " . $e->getMessage();
         }
     }
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
-
     <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
-    >
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Entrar | Vende+</title>
-
     <style>
-
-        *, *::before, *::after {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             background-color: #000000;
             color: #ffffff;
@@ -235,12 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             justify-content: center;
             padding: 20px 16px;
         }
-
-        .auth-container {
-            width: 100%;
-            max-width: 400px;
-        }
-
+        .auth-container { width: 100%; max-width: 400px; }
         .auth-card {
             background-color: #09090b;
             border: 1px solid #18181b;
@@ -248,41 +94,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             padding: 32px 28px;
             box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
         }
-
-        .brand-header {
-            text-align: center;
-            margin-bottom: 26px;
-        }
-
-        .logo-text {
-            font-size: 28px;
-            font-weight: 800;
-            color: #ffffff;
-            letter-spacing: -0.5px;
-            margin-bottom: 6px;
-        }
-
-        .logo-text span {
-            color: #10b981;
-        }
-
-        .brand-subtitle {
-            font-size: 13.5px;
-            color: #71717a;
-        }
-
-        .form-group {
-            margin-bottom: 18px;
-        }
-
-        .form-group label {
-            display: block;
-            font-size: 13px;
-            color: #a1a1aa;
-            margin-bottom: 6px;
-            font-weight: 500;
-        }
-
+        .brand-header { text-align: center; margin-bottom: 26px; }
+        .logo-text { font-size: 28px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; margin-bottom: 6px; }
+        .logo-text span { color: #10b981; }
+        .brand-subtitle { font-size: 13.5px; color: #71717a; }
+        .form-group { margin-bottom: 18px; }
+        .form-group label { display: block; font-size: 13px; color: #a1a1aa; margin-bottom: 6px; font-weight: 500; }
         .form-group input {
             width: 100%;
             padding: 11px 14px;
@@ -294,31 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             outline: none;
             transition: border-color 0.2s, box-shadow 0.2s;
         }
-
-        .form-group input:focus {
-            border-color: #10b981;
-            box-shadow: 0 0 0 1px #10b981;
-        }
-
-        .form-group input::placeholder {
-            color: #52525b;
-        }
-
-        .forgot-link {
-            display: block;
-            text-align: right;
-            margin-top: -10px;
-            margin-bottom: 18px;
-            font-size: 12.5px;
-            color: #71717a;
-            text-decoration: none;
-            transition: color 0.2s;
-        }
-
-        .forgot-link:hover {
-            color: #10b981;
-        }
-
+        .form-group input:focus { border-color: #10b981; box-shadow: 0 0 0 1px #10b981; }
         .btn-submit {
             width: 100%;
             background-color: #10b981;
@@ -331,109 +124,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             cursor: pointer;
             transition: all 0.2s ease;
         }
-
-        .btn-submit:hover {
-            background-color: #059669;
-        }
-
-        .btn-submit:active {
-            transform: scale(0.99);
-        }
-
-        .auth-footer {
-            margin-top: 24px;
-            text-align: center;
-            font-size: 13px;
-            color: #71717a;
-        }
-
-        .auth-footer a {
-            color: #10b981;
-            text-decoration: none;
-            font-weight: 600;
-        }
-
-        .auth-footer a:hover {
-            text-decoration: underline;
-        }
-
-        .alert {
-            padding: 11px 14px;
-            border-radius: 8px;
-            font-size: 13px;
-            margin-bottom: 18px;
-            line-height: 1.4;
-        }
-
-        .alert-error {
-            background-color: rgba(239, 68, 68, 0.1);
-            border: 1px solid #ef4444;
-            color: #f87171;
-        }
-
-        .alert-success {
-            background-color: rgba(16, 185, 129, 0.1);
-            border: 1px solid #10b981;
-            color: #34d399;
-        }
-
+        .btn-submit:hover { background-color: #059669; }
+        .auth-footer { margin-top: 24px; text-align: center; font-size: 13px; color: #71717a; }
+        .auth-footer a { color: #10b981; text-decoration: none; font-weight: 600; }
+        .alert { padding: 11px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 18px; }
+        .alert-error { background-color: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; color: #f87171; }
+        .alert-success { background-color: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; color: #34d399; }
     </style>
-
 </head>
-
 <body>
 
 <div class="auth-container">
-
     <div class="auth-card">
-
         <div class="brand-header">
-
-            <h1 class="logo-text">
-                vende<span>+</span>
-            </h1>
-
-            <p class="brand-subtitle">
-                Acesse seu painel financeiro
-            </p>
-
+            <h1 class="logo-text">vende<span>+</span></h1>
+            <p class="brand-subtitle">Acesse seu painel financeiro</p>
         </div>
 
-
         <?php if (!empty($erro)): ?>
-
             <div class="alert alert-error">
                 ⚠️ <?= htmlspecialchars($erro) ?>
             </div>
-
         <?php endif; ?>
 
-
         <?php if (!empty($sucesso)): ?>
-
             <div class="alert alert-success">
                 ✅ <?= htmlspecialchars($sucesso) ?>
             </div>
-
         <?php endif; ?>
 
-
-        <form method="POST" action="">
-
-            <!-- Proteção CSRF -->
-            <input
-                type="hidden"
-                name="csrf_token"
-                value="<?= htmlspecialchars(csrf_token()) ?>"
-            >
-
-
+        <form method="POST" action="login.php">
             <div class="form-group">
-
-                <label for="email">
-                    E-mail
-                </label>
-
+                <label for="email">E-mail</label>
                 <input
                     type="email"
                     id="email"
@@ -442,64 +164,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     value="<?= htmlspecialchars($_POST['email'] ?? '') ?>"
                     required
                     autofocus
-                    autocomplete="email"
                 >
-
             </div>
 
-
             <div class="form-group">
-
-                <label for="senha">
-                    Senha
-                </label>
-
+                <label for="senha">Senha</label>
                 <input
                     type="password"
                     id="senha"
                     name="senha"
                     placeholder="Sua senha de acesso"
                     required
-                    autocomplete="current-password"
                 >
-
             </div>
 
-
-            <!-- Link de Recuperação -->
-
-            <a
-                href="recuperar-senha.php"
-                class="forgot-link"
-            >
-                Esqueceu sua senha?
-            </a>
-
-
-            <button
-                type="submit"
-                class="btn-submit"
-            >
-                Entrar no Sistema
-            </button>
-
+            <button type="submit" class="btn-submit">Entrar no Sistema</button>
         </form>
 
-
         <div class="auth-footer">
-
-            Não tem uma conta?
-
-            <a href="cadastro.php">
-                Cadastre-se
-            </a>
-
+            Não tem uma conta? <a href="cadastro.php">Cadastre-se</a>
         </div>
-
     </div>
-
 </div>
 
 </body>
-
 </html>

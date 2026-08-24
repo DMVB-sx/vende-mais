@@ -1,0 +1,15 @@
+RewriteEngine On
+
+# Permite acesso direto a arquivos e imagens estáticas existentes
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Impede listagem de diretório
+Options -Indexes
+
+# Protege arquivos sensíveis
+<FilesMatch "\.(env|json|sql|log)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>

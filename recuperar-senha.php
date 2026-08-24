@@ -1,151 +1,111 @@
 <?php
-require_once 'config/conexao.php';
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 
-// Se já estiver logado, redireciona para o painel
-if (isset($_SESSION['usuario_id'])) {
-    header("Location: index.php?page=dashboard");
-    exit;
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
 }
 
-$erro = '';
-$sucesso = '';
-$etapa = 1; // 1 = Validar conta, 2 = Digitar nova senha
+require_once __DIR__ . '/config/conexao.php';
+require_once __DIR__ . '/config/brevo.php';
 
-// ============================================================
-// Estado da recuperação: SEMPRE vem da sessão, nunca do POST.
-// Isso impede que alguém forje o usuario_id e troque a senha
-// de qualquer conta sem passar pela verificação da Etapa 1.
-// ============================================================
-if (
-    !empty($_SESSION['reset_usuario_id']) &&
-    !empty($_SESSION['reset_expira']) &&
-    $_SESSION['reset_expira'] > time()
-) {
-    $etapa = 2;
-}
+$mensagem_sucesso = '';
+$mensagem_erro = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Identifica a etapa: se há token na URL ou na sessão/POST, exibe o formulário de redefinição
+$token_param = trim($_GET['token'] ?? $_POST['token'] ?? '');
+$etapa = (!empty($token_param)) ? 'redefinir' : 'solicitar';
 
-    validar_csrf();
+/*
+|--------------------------------------------------------------------------
+| 1. PROCESSA SOLICITAÇÃO DE CÓDIGO (ETAPA 1)
+|--------------------------------------------------------------------------
+*/
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['acao']) && $_POST['acao'] === 'solicitar') {
+    $email = trim($_POST['email'] ?? '');
 
-    // ETAPA 1: Identificação (E-mail + Nome da Empresa)
-    if (isset($_POST['validar_identidade'])) {
+    if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $mensagem_erro = "Por favor, informe um endereço de e-mail válido.";
+    } else {
+        // Busca usuário pelo e-mail
+        $stmt = $pdo->prepare("SELECT id, nome, email FROM usuarios WHERE email = ? LIMIT 1");
+        $stmt->execute([$email]);
+        $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        // Limite simples de tentativas (evita brute-force de e-mail + empresa)
-        $_SESSION['reset_tentativas'] = ($_SESSION['reset_tentativas'] ?? 0) + 1;
-        $_SESSION['reset_tentativas_inicio'] = $_SESSION['reset_tentativas_inicio'] ?? time();
+        if ($usuario) {
+            // Gera token numérico seguro de 6 dígitos
+            $token = str_pad(random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+            $expira = date('Y-m-d H:i:s', strtotime('+30 minutes'));
 
-        if (time() - $_SESSION['reset_tentativas_inicio'] > 900) {
-            // Passou 15 min, reseta contador
-            $_SESSION['reset_tentativas'] = 1;
-            $_SESSION['reset_tentativas_inicio'] = time();
-        }
+            $stmtUpdate = $pdo->prepare("
+                UPDATE usuarios 
+                SET token_recuperacao = ?, token_expira_em = ? 
+                WHERE id = ?
+            ");
+            $stmtUpdate->execute([$token, $expira, $usuario['id']]);
 
-        if ($_SESSION['reset_tentativas'] > 5) {
+            // Dispara e-mail via API Brevo
+            $enviado = enviarEmailTokenBrevo($usuario['email'], $usuario['nome'], $token);
 
-            $erro = "Muitas tentativas. Aguarde alguns minutos antes de tentar novamente.";
-
-        } else {
-
-            $email = trim($_POST['email'] ?? '');
-            $nome_empresa = trim($_POST['nome_empresa'] ?? '');
-
-            if (!empty($email) && !empty($nome_empresa)) {
-                try {
-                    // Busca o usuário e os dados da empresa vinculada usando e.* para evitar conflito de colunas
-                    $stmt = $pdo->prepare("
-                        SELECT u.id AS usuario_id, u.nome AS usuario_nome, e.*
-                        FROM usuarios u
-                        JOIN empresas e ON u.empresa_id = e.id
-                        WHERE u.email = ?
-                        LIMIT 1
-                    ");
-                    $stmt->execute([$email]);
-                    $dados = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                    if ($dados) {
-                        // Identifica o campo correto do nome da empresa existente no banco
-                        $nomeEmpresaReal = $dados['nome'] 
-                                        ?? $dados['nome_fantasia'] 
-                                        ?? $dados['fantasia'] 
-                                        ?? $dados['razao_social'] 
-                                        ?? $dados['nome_empresa'] 
-                                        ?? '';
-
-                        // Compara sem diferenciar maiúsculas/minúsculas
-                        if (!empty($nomeEmpresaReal) && strcasecmp(trim($nomeEmpresaReal), $nome_empresa) === 0) {
-
-                            // Identidade confirmada: guarda na SESSÃO (não no HTML)
-                            $_SESSION['reset_usuario_id'] = (int)$dados['usuario_id'];
-                            $_SESSION['reset_expira'] = time() + 600; // válido por 10 minutos
-                            unset($_SESSION['reset_tentativas']);
-
-                            $etapa = 2;
-                        } else {
-                            $erro = "O nome da empresa informada não confere com o cadastro deste e-mail.";
-                        }
-                    } else {
-                        $erro = "Nenhuma conta cadastrada encontrada com este e-mail.";
-                    }
-                } catch (Throwable $e) {
-                    error_log($e->getMessage());
-                    $erro = "Não foi possível processar a verificação. Tente novamente.";
-                }
+            if ($enviado) {
+                $mensagem_sucesso = "Enviamos um código de recuperação para o seu e-mail. Verifique sua caixa de entrada e pasta de spam!";
+                // Transfere o fluxo para a tela de inserção do código
+                $etapa = 'redefinir';
             } else {
-                $erro = "Preencha o e-mail e o nome da sua empresa cadastrada.";
+                $mensagem_erro = "Ocorreu um erro ao enviar o e-mail. Verifique suas credenciais da Brevo ou tente novamente.";
             }
+        } else {
+            // Mensagem genérica para prevenir enumeração de contas
+            $mensagem_sucesso = "Se o e-mail estiver cadastrado em nosso sistema, as instruções foram enviadas!";
         }
     }
+}
 
-    // ETAPA 2: Redefinição da Senha
-    if (isset($_POST['salvar_nova_senha'])) {
+/*
+|--------------------------------------------------------------------------
+| 2. PROCESSA REDEFINIÇÃO DE SENHA (ETAPA 2)
+|--------------------------------------------------------------------------
+*/
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['acao']) && $_POST['acao'] === 'redefinir') {
+    $token_digitado = trim($_POST['token'] ?? '');
+    $nova_senha = $_POST['nova_senha'] ?? '';
+    $confirma_senha = $_POST['confirma_senha'] ?? '';
 
-        // Só aceita se a Etapa 1 foi validada nesta sessão e não expirou
-        if (
-            empty($_SESSION['reset_usuario_id']) ||
-            empty($_SESSION['reset_expira']) ||
-            $_SESSION['reset_expira'] <= time()
-        ) {
-            unset($_SESSION['reset_usuario_id'], $_SESSION['reset_expira']);
-            $etapa = 1;
-            $erro = "Sua sessão de verificação expirou. Comece novamente.";
+    if (empty($token_digitado)) {
+        $mensagem_erro = "Informe o código de 6 dígitos recebido.";
+    } elseif (strlen($nova_senha) < 6) {
+        $mensagem_erro = "A nova senha deve ter no mínimo 6 caracteres.";
+    } elseif ($nova_senha !== $confirma_senha) {
+        $mensagem_erro = "As senhas não coincidem. Digite novamente.";
+    } else {
+        // Valida token e expiração
+        $stmtValida = $pdo->prepare("
+            SELECT id 
+            FROM usuarios 
+            WHERE token_recuperacao = ? 
+              AND token_expira_em >= NOW() 
+            LIMIT 1
+        ");
+        $stmtValida->execute([$token_digitado]);
+        $usuario = $stmtValida->fetch(PDO::FETCH_ASSOC);
 
+        if ($usuario) {
+            $senha_hash = password_hash($nova_senha, PASSWORD_DEFAULT);
+
+            // Atualiza senha e anula o token usado
+            $stmtTroca = $pdo->prepare("
+                UPDATE usuarios 
+                SET senha = ?, token_recuperacao = NULL, token_expira_em = NULL 
+                WHERE id = ?
+            ");
+            $stmtTroca->execute([$senha_hash, $usuario['id']]);
+
+            $mensagem_sucesso = "Senha alterada com sucesso! Você já pode fazer login.";
+            $etapa = 'concluido';
         } else {
-
-            $usuario_id = (int)$_SESSION['reset_usuario_id'];
-            $nova_senha = $_POST['nova_senha'] ?? '';
-            $confirma_senha = $_POST['confirma_senha'] ?? '';
-
-            if (!empty($nova_senha)) {
-                if ($nova_senha === $confirma_senha) {
-                    if (strlen($nova_senha) >= 6) {
-                        try {
-                            $nova_hash = password_hash($nova_senha, PASSWORD_DEFAULT);
-                            $stmtUp = $pdo->prepare("UPDATE usuarios SET senha = ? WHERE id = ?");
-                            $stmtUp->execute([$nova_hash, $usuario_id]);
-
-                            // Encerra o estado de recuperação
-                            unset($_SESSION['reset_usuario_id'], $_SESSION['reset_expira']);
-
-                            $sucesso = "Senha redefinida com sucesso! Você já pode entrar com a nova senha.";
-                            $etapa = 3; // Concluído
-                        } catch (Throwable $e) {
-                            error_log($e->getMessage());
-                            $erro = "Não foi possível atualizar a senha. Tente novamente.";
-                            $etapa = 2;
-                        }
-                    } else {
-                        $erro = "A senha deve ter pelo menos 6 caracteres.";
-                        $etapa = 2;
-                    }
-                } else {
-                    $erro = "As senhas digitadas não coincidem.";
-                    $etapa = 2;
-                }
-            } else {
-                $erro = "Dados inválidos para redefinição.";
-                $etapa = 2;
-            }
+            $mensagem_erro = "Código inválido ou expirado. Solicite um novo envio.";
+            $etapa = 'redefinir';
         }
     }
 }
@@ -154,218 +114,152 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Recuperar Senha | Vende+</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: {
+                            950: '#060608',
+                            900: '#09090b',
+                            800: '#121215',
+                            700: '#18181b',
+                            600: '#27272a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        *, *::before, *::after {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            background-color: #000000;
-            color: #ffffff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px 16px;
-        }
-
-        .auth-container {
-            width: 100%;
-            max-width: 420px;
-        }
-
-        .auth-card {
-            background-color: #09090b;
-            border: 1px solid #18181b;
-            border-radius: 12px;
-            padding: 32px 28px;
-            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
-        }
-
-        .brand-header {
-            text-align: center;
-            margin-bottom: 26px;
-        }
-
-        .logo-text {
-            font-size: 28px;
-            font-weight: 800;
-            color: #ffffff;
-            letter-spacing: -0.5px;
-            margin-bottom: 6px;
-        }
-
-        .logo-text span {
-            color: #10b981;
-        }
-
-        .brand-subtitle {
-            font-size: 13px;
-            color: #71717a;
-            line-height: 1.4;
-        }
-
-        .form-group {
-            margin-bottom: 18px;
-        }
-
-        .form-group label {
-            display: block;
-            font-size: 13px;
-            color: #a1a1aa;
-            margin-bottom: 6px;
-            font-weight: 500;
-        }
-
-        .form-group input {
-            width: 100%;
-            padding: 11px 14px;
-            background: #000000;
-            border: 1px solid #27272a;
-            border-radius: 8px;
-            color: #ffffff;
-            font-size: 14px;
-            outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .form-group input:focus {
-            border-color: #10b981;
-            box-shadow: 0 0 0 1px #10b981;
-        }
-
-        .btn-submit {
-            width: 100%;
-            background-color: #10b981;
-            color: #000000;
-            font-weight: 700;
-            font-size: 14px;
-            padding: 12px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            margin-top: 8px;
-        }
-
-        .btn-submit:hover {
-            background-color: #059669;
-        }
-
-        .auth-footer {
-            margin-top: 24px;
-            text-align: center;
-            font-size: 13px;
-            color: #71717a;
-        }
-
-        .auth-footer a {
-            color: #10b981;
-            text-decoration: none;
-            font-weight: 600;
-        }
-
-        .alert {
-            padding: 11px 14px;
-            border-radius: 8px;
-            font-size: 13px;
-            margin-bottom: 18px;
-            line-height: 1.4;
-        }
-
-        .alert-error {
-            background-color: rgba(239, 68, 68, 0.1);
-            border: 1px solid #ef4444;
-            color: #f87171;
-        }
-
-        .alert-success {
-            background-color: rgba(16, 185, 129, 0.1);
-            border: 1px solid #10b981;
-            color: #34d399;
-        }
+        .glow-emerald { box-shadow: 0 0 50px -10px rgba(16, 185, 129, 0.15); }
     </style>
 </head>
-<body>
+<body class="bg-black text-slate-100 font-sans antialiased selection:bg-emerald-500 selection:text-black min-h-screen flex items-center justify-center p-4">
 
-<div class="auth-container">
-    <div class="auth-card">
-        <div class="brand-header">
-            <h1 class="logo-text">vende<span>+</span></h1>
-            <p class="brand-subtitle">
-                <?php if ($etapa === 1): ?>
-                    Confirme seus dados para redefinir a senha
-                <?php elseif ($etapa === 2): ?>
-                    Crie uma nova senha de acesso
-                <?php else: ?>
-                    Conta atualizada!
-                <?php endif; ?>
+    <div class="max-w-md w-full bg-dark-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 shadow-2xl glow-emerald">
+        
+        <!-- Logo -->
+        <div class="text-center mb-6">
+            <a href="index.php" class="inline-block text-2xl font-extrabold tracking-tight text-white mb-2">
+                vende<span class="text-emerald-500">+</span>
+            </a>
+            <h1 class="text-lg font-bold text-white">Recuperação de Senha</h1>
+            <p class="text-xs text-zinc-400 mt-1">
+                <?= $etapa === 'redefinir' ? 'Digite o código de verificação recebido e sua nova senha' : 'Informe seu e-mail cadastrado para redefinir o acesso' ?>
             </p>
         </div>
 
-        <?php if (!empty($erro)): ?>
-            <div class="alert alert-error">
-                ⚠️ <?= htmlspecialchars($erro) ?>
+        <!-- Alertas de Feedback -->
+        <?php if (!empty($mensagem_erro)): ?>
+            <div class="mb-5 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-xl p-3.5 flex items-start gap-2">
+                <span>⚠️</span>
+                <span><?= htmlspecialchars($mensagem_erro) ?></span>
             </div>
         <?php endif; ?>
 
-        <?php if (!empty($sucesso)): ?>
-            <div class="alert alert-success">
-                ✅ <?= htmlspecialchars($sucesso) ?>
+        <?php if (!empty($mensagem_sucesso)): ?>
+            <div class="mb-5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-xl p-3.5 flex items-start gap-2">
+                <span>✓</span>
+                <span><?= htmlspecialchars($mensagem_sucesso) ?></span>
             </div>
         <?php endif; ?>
 
-        <?php if ($etapa === 1): ?>
-            <!-- ETAPA 1: Identificação -->
-            <form method="POST" action="">
-                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+        <?php if ($etapa === 'concluido'): ?>
+            <!-- Tela Final de Sucesso -->
+            <div class="text-center pt-2">
+                <a href="login.php" class="w-full inline-block bg-emerald-500 hover:bg-emerald-400 text-black text-xs sm:text-sm font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-emerald-500/20">
+                    Ir para o Login
+                </a>
+            </div>
 
-                <div class="form-group">
-                    <label>Seu E-mail Cadastrado</label>
-                    <input type="email" name="email" placeholder="seuemail@exemplo.com" value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required autofocus>
+        <?php elseif ($etapa === 'redefinir'): ?>
+            <!-- Formulário: Etapa 2 (Código + Nova Senha) -->
+            <form method="POST" action="recuperar-senha.php" class="space-y-4">
+                <input type="hidden" name="acao" value="redefinir">
+
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Código de 6 Dígitos</label>
+                    <input 
+                        type="text" 
+                        name="token" 
+                        value="<?= htmlspecialchars($token_param) ?>" 
+                        placeholder="Ex: 123456" 
+                        required 
+                        maxlength="6"
+                        class="w-full bg-dark-800 border border-zinc-700 focus:border-emerald-500 text-white text-center text-lg tracking-widest font-mono rounded-xl px-4 py-3 outline-none transition-all placeholder:text-zinc-600 placeholder:tracking-normal placeholder:font-sans placeholder:text-xs"
+                    >
                 </div>
 
-                <div class="form-group">
-                    <label>Nome da sua Empresa</label>
-                    <input type="text" name="nome_empresa" placeholder="Ex: Denio" value="<?= htmlspecialchars($_POST['nome_empresa'] ?? '') ?>" required>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Nova Senha</label>
+                    <input 
+                        type="password" 
+                        name="nova_senha" 
+                        placeholder="Mínimo 6 caracteres" 
+                        required 
+                        minlength="6"
+                        class="w-full bg-dark-800 border border-zinc-700 focus:border-emerald-500 text-white text-xs sm:text-sm rounded-xl px-4 py-3 outline-none transition-all placeholder:text-zinc-600"
+                    >
                 </div>
 
-                <button type="submit" name="validar_identidade" class="btn-submit">Verificar Conta</button>
-            </form>
-
-        <?php elseif ($etapa === 2): ?>
-            <!-- ETAPA 2: Digitar Nova Senha -->
-            <form method="POST" action="">
-                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-
-                <div class="form-group">
-                    <label>Nova Senha</label>
-                    <input type="password" name="nova_senha" placeholder="Mínimo 6 caracteres" required autofocus>
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Confirmar Nova Senha</label>
+                    <input 
+                        type="password" 
+                        name="confirma_senha" 
+                        placeholder="Repita a nova senha" 
+                        required 
+                        minlength="6"
+                        class="w-full bg-dark-800 border border-zinc-700 focus:border-emerald-500 text-white text-xs sm:text-sm rounded-xl px-4 py-3 outline-none transition-all placeholder:text-zinc-600"
+                    >
                 </div>
 
-                <div class="form-group">
-                    <label>Confirmar Nova Senha</label>
-                    <input type="password" name="confirma_senha" placeholder="Repita a nova senha" required>
-                </div>
+                <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-400 text-black text-xs sm:text-sm font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-emerald-500/20 cursor-pointer">
+                    Salvar Nova Senha
+                </button>
 
-                <button type="submit" name="salvar_nova_senha" class="btn-submit">Salvar Nova Senha</button>
+                <div class="text-center pt-2">
+                    <a href="recuperar-senha.php" class="text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
+                        Reenviar outro código
+                    </a>
+                </div>
             </form>
 
         <?php else: ?>
-            <!-- ETAPA 3: Sucesso -->
-            <a href="login.php" class="btn-submit" style="display: block; text-align: center; text-decoration: none;">Ir para o Login</a>
+            <!-- Formulário: Etapa 1 (Solicitar Código via E-mail) -->
+            <form method="POST" action="recuperar-senha.php" class="space-y-4">
+                <input type="hidden" name="acao" value="solicitar">
+
+                <div>
+                    <label class="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Seu E-mail Cadastrado</label>
+                    <input 
+                        type="email" 
+                        name="email" 
+                        placeholder="exemplo@dominio.com" 
+                        required 
+                        class="w-full bg-dark-800 border border-zinc-700 focus:border-emerald-500 text-white text-xs sm:text-sm rounded-xl px-4 py-3 outline-none transition-all placeholder:text-zinc-600"
+                    >
+                </div>
+
+                <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-400 text-black text-xs sm:text-sm font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-emerald-500/20 cursor-pointer">
+                    Enviar Código de Recuperação
+                </button>
+
+                <div class="text-center pt-2">
+                    <a href="login.php" class="text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
+                        ← Voltar para o Login
+                    </a>
+                </div>
+            </form>
         <?php endif; ?>
 
-        <div class="auth-footer">
-            Lembrou a senha? <a href="login.php">Voltar ao Login</a>
-        </div>
     </div>
-</div>
 
 </body>
 </html>
