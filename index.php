@@ -25,11 +25,14 @@ if (!isset($_SESSION['usuario_id']) || empty($_SESSION['usuario_id'])) {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+        <!-- FAVICON DA ABA DO NAVEGADOR -->
+        <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
+
         <!-- SEO BÁSICO -->
         <title>Vende+ | Gestão Financeira e Controle de Vendas</title>
         <meta name="description" content="Controle vendas, estoque e lucro real em um só lugar. Teste grátis por 7 dias.">
 
-        <!-- OPEN GRAPH / WHATSAPP / FACEBOOK -->
+        <!-- OPEN GRAPH / FACEBOOK -->
         <meta property="og:site_name" content="Vende+">
         <meta property="og:type" content="website">
         <meta property="og:url" content="https://appvendemais.com.br/">
@@ -41,7 +44,7 @@ if (!isset($_SESSION['usuario_id']) || empty($_SESSION['usuario_id'])) {
         <meta property="og:image:width" content="1200">
         <meta property="og:image:height" content="630">
 
-        <!-- FALLBACKS SCHEMA / WHATSAPP LEGADO -->
+        <!-- FALLBACKS SCHEMA -->
         <meta itemprop="name" content="Vende+ | Gestão Financeira e Controle de Vendas">
         <meta itemprop="description" content="Controle vendas, estoque e lucro real em um só lugar. Teste grátis por 7 dias.">
         <meta itemprop="image" content="https://i.postimg.cc/7PVZvC6q/og-image.png">
@@ -85,14 +88,15 @@ if (!isset($_SESSION['usuario_id']) || empty($_SESSION['usuario_id'])) {
     </head>
     <body class="bg-black text-slate-100 font-sans antialiased selection:bg-emerald-500 selection:text-black overflow-x-hidden">
 
-        <!-- Imagem oculta para leitura prioritária do WhatsApp -->
         <img src="https://i.postimg.cc/7PVZvC6q/og-image.png" alt="Vende+" style="display:none; width:0; height:0; position:absolute;" />
 
         <!-- NAVBAR -->
         <header class="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-zinc-800/80">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
                 <div class="flex items-center space-x-3">
-                    <span class="text-xl sm:text-2xl font-extrabold tracking-tight text-white">vende<span class="text-emerald-500">+</span></span>
+                    <a href="index.php" class="flex items-center">
+                        <img src="/assets/img/logo.svg" alt="Vende+" class="h-8 w-auto object-contain">
+                    </a>
                 </div>
                 
                 <nav class="hidden md:flex items-center space-x-8 text-sm font-medium text-zinc-400">
@@ -142,7 +146,6 @@ if (!isset($_SESSION['usuario_id']) || empty($_SESSION['usuario_id'])) {
                 
                 <div class="bg-dark-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl glow-emerald">
                     
-                    <!-- Topo do Mockup do Navegador -->
                     <div class="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-zinc-800 bg-dark-950">
                         <div class="flex items-center space-x-2">
                             <div class="w-2.5 sm:w-3 h-2.5 sm:h-3 rounded-full bg-red-500/80"></div>
@@ -153,10 +156,8 @@ if (!isset($_SESSION['usuario_id']) || empty($_SESSION['usuario_id'])) {
                         <span class="text-[11px] sm:text-xs font-semibold px-2.5 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md">Simulação ao Vivo</span>
                     </div>
 
-                    <!-- Conteúdo: Painel Visão Geral -->
                     <div class="p-4 sm:p-8 bg-dark-900">
                         
-                        <!-- Header do Painel -->
                         <div class="flex justify-between items-center mb-5 sm:mb-6">
                             <div>
                                 <h2 class="text-base sm:text-xl font-bold text-white">Visão Geral</h2>
@@ -170,7 +171,6 @@ if (!isset($_SESSION['usuario_id']) || empty($_SESSION['usuario_id'])) {
                         <!-- CARDS DE MÉTRICAS -->
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5 sm:gap-4 mb-5 sm:mb-6">
                             
-                            <!-- Faturamento -->
                             <div class="bg-dark-800 border border-zinc-800/90 rounded-xl p-4 sm:p-5 relative">
                                 <p class="text-xs font-medium text-zinc-400 mb-1">Faturamento Bruto</p>
                                 <p class="text-xl sm:text-2xl font-bold text-white tracking-tight">R$ 14.850,00</p>
@@ -179,7 +179,6 @@ if (!isset($_SESSION['usuario_id']) || empty($_SESSION['usuario_id'])) {
                                 </div>
                             </div>
 
-                            <!-- Despesas -->
                             <div class="bg-dark-800 border border-zinc-800/90 rounded-xl p-4 sm:p-5 relative">
                                 <p class="text-xs font-medium text-zinc-400 mb-1">Despesas Operacionais</p>
                                 <p class="text-xl sm:text-2xl font-bold text-zinc-200 tracking-tight">R$ 3.420,00</p>
@@ -188,7 +187,6 @@ if (!isset($_SESSION['usuario_id']) || empty($_SESSION['usuario_id'])) {
                                 </div>
                             </div>
 
-                            <!-- Lucro Líquido -->
                             <div class="bg-dark-800 border border-emerald-500/40 rounded-xl p-4 sm:p-5 relative overflow-hidden">
                                 <div class="absolute -right-6 -bottom-6 w-24 h-24 bg-emerald-500/10 rounded-full blur-xl"></div>
                                 <p class="text-xs font-semibold text-emerald-400 mb-1">Lucro Líquido Real</p>
@@ -446,7 +444,7 @@ if (!isset($_SESSION['usuario_id']) || empty($_SESSION['usuario_id'])) {
                         <div class="absolute inset-0 bg-gradient-to-b from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
                         <div class="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-5 border border-emerald-500/20 group-hover:scale-110 group-hover:bg-emerald-500/20 transition-all duration-300">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138z" />
                             </svg>
                         </div>
                         <h3 class="text-base sm:text-lg font-bold text-white mb-2 group-hover:text-emerald-300 transition-colors">Cálculo Preciso de Markup</h3>
@@ -593,6 +591,7 @@ if ($bloqueado) {
         <meta charset="UTF-8">
         <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
         <title>Período de Testes Encerrado | Vende+</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>
@@ -652,6 +651,8 @@ if (!file_exists($arquivo_completo)) {
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- FAVICON NA ABA DO PAINEL -->
+    <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
     <title>Painel | Vende+</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="/assets/css/style.css">

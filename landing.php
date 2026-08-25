@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vende+ | Sistema de Gestão Financeira e Vendas para Pequenos Negócios</title>
+    <?php include __DIR__ . '/includes/favicon.php'; ?>
     <meta name="description" content="Controle vendas, estoque, compras e despesas do seu negócio em um só lugar. Sem planilha, sem caderno. Experimente o Vende+.">
 
     <!-- Open Graph: como o link aparece ao compartilhar no WhatsApp/Instagram -->
@@ -55,6 +56,11 @@
     <header class="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-zinc-800/80">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div class="flex items-center space-x-3">
+                <svg width="28" height="28" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" class="flex-shrink-0" style="margin-right:8px;">
+                    <rect width="64" height="64" rx="16" fill="#09090b"/>
+                    <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M52 32 L52 44 M46 38 L58 38" stroke="#10b981" stroke-width="5.5" stroke-linecap="round"/>
+                </svg>
                 <span class="text-2xl font-extrabold tracking-tight text-white">vende<span class="text-emerald-500">+</span></span>
             </div>
             

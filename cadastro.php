@@ -1,7 +1,7 @@
 <?php
 require_once 'config/conexao.php';
 
-// Se o usuário já estiver logado, vai direto pro dashboard
+// Se o usuário já estiver logado, redireciona para o painel
 if (isset($_SESSION['usuario_id'])) {
     header("Location: index.php?page=dashboard");
     exit;
@@ -11,15 +11,18 @@ $erro = '';
 $sucesso = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    validar_csrf();
+    if (function_exists('validar_csrf')) {
+        validar_csrf();
+    }
 
-    $nome_empresa = trim($_POST['nome_empresa'] ?? '');
     $nome_usuario = trim($_POST['nome_usuario'] ?? '');
     $email        = trim($_POST['email'] ?? '');
     $senha        = $_POST['senha'] ?? '';
 
-    if (!empty($nome_empresa) && !empty($nome_usuario) && !empty($email) && !empty($senha)) {
-        if (strlen($senha) < 6) {
+    if (!empty($nome_usuario) && !empty($email) && !empty($senha)) {
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $erro = "Por favor, informe um endereço de e-mail válido.";
+        } elseif (strlen($senha) < 6) {
             $erro = "A senha deve ter pelo menos 6 caracteres.";
         } else {
             try {
@@ -32,53 +35,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $pdo->beginTransaction();
 
-                    // 2. Cria a empresa
-                    // Tenta inserir considerando diferentes nomes comuns de coluna
+                    // 2. Cria a empresa inicial automaticamente usando o nome do usuário
+                    $primeiro_nome = explode(' ', $nome_usuario)[0];
+                    $nome_empresa_padrao = "Empresa de " . $primeiro_nome;
                     try {
                         $stmtEmp = $pdo->prepare("INSERT INTO empresas (nome) VALUES (?)");
-                        $stmtEmp->execute([$nome_empresa]);
+                        $stmtEmp->execute([$nome_empresa_padrao]);
                     } catch (Throwable $eEmp) {
                         $stmtEmp = $pdo->prepare("INSERT INTO empresas (nome_fantasia) VALUES (?)");
-                        $stmtEmp->execute([$nome_empresa]);
+                        $stmtEmp->execute([$nome_empresa_padrao]);
                     }
                     $empresa_id = $pdo->lastInsertId();
 
-                    // 3. Cria o usuário com a senha criptografada
-$senha_hash = password_hash($senha, PASSWORD_DEFAULT);
+                    // 3. Gera hash da senha e token seguro de verificação (24h)
+                    $senha_hash = password_hash($senha, PASSWORD_DEFAULT);
+                    $token_verificacao = bin2hex(random_bytes(32));
+                    $token_expira = date('Y-m-d H:i:s', strtotime('+24 hours'));
 
-// Gera um token único para confirmação do e-mail
-$token_verificacao = bin2hex(random_bytes(32));
+                    // 4. Insere o usuário com email_verificado = 0
+                    $stmtUser = $pdo->prepare("
+                        INSERT INTO usuarios (
+                            empresa_id,
+                            nome,
+                            email,
+                            senha,
+                            email_verificado,
+                            token_verificacao,
+                            token_expira
+                        ) VALUES (?, ?, ?, ?, 0, ?, ?)
+                    ");
 
-// Token válido por 24 horas
-$token_expira = date('Y-m-d H:i:s', strtotime('+24 hours'));
+                    $stmtUser->execute([
+                        $empresa_id,
+                        $nome_usuario,
+                        $email,
+                        $senha_hash,
+                        $token_verificacao,
+                        $token_expira
+                    ]);
 
-$stmtUser = $pdo->prepare("
-    INSERT INTO usuarios (
-        empresa_id,
-        nome,
-        email,
-        senha,
-        email_verificado,
-        token_verificacao,
-        token_expira
-    ) VALUES (?, ?, ?, ?, 0, ?, ?)
-");
+                    $pdo->commit();
 
-$stmtUser->execute([
-    $empresa_id,
-    $nome_usuario,
-    $email,
-    $senha_hash,
-    $token_verificacao,
-    $token_expira
-]);
+                    // 5. Envia o e-mail de ativação via Brevo
+                    if (file_exists(__DIR__ . '/config/brevo.php')) {
+                        require_once __DIR__ . '/config/brevo.php';
+                        if (function_exists('enviar_email_verificacao')) {
+                            enviar_email_verificacao($email, $nome_usuario, $token_verificacao);
+                        }
+                    }
 
-$pdo->commit();
-
-// Por enquanto vamos apenas redirecionar.
-// O envio do e-mail será colocado no próximo passo.
-header("Location: login.php?msg=verifique_email");
-exit;
+                    header("Location: login.php?msg=verifique_email");
+                    exit;
                 }
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
@@ -99,6 +106,10 @@ exit;
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Criar Conta | Vende+</title>
+    
+    <!-- FAVICON -->
+    <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
+
     <style>
         *, *::before, *::after {
             box-sizing: border-box;
@@ -125,7 +136,7 @@ exit;
         .auth-card {
             background-color: #09090b;
             border: 1px solid #18181b;
-            border-radius: 12px;
+            border-radius: 14px;
             padding: 32px 28px;
             box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
         }
@@ -137,10 +148,10 @@ exit;
 
         .logo-text {
             font-size: 28px;
-            font-weight: 800;
+            font-weight: 900;
             color: #ffffff;
-            letter-spacing: -0.5px;
-            margin-bottom: 6px;
+            letter-spacing: -1px;
+            margin: 0;
         }
 
         .logo-text span {
@@ -150,6 +161,7 @@ exit;
         .brand-subtitle {
             font-size: 13.5px;
             color: #71717a;
+            margin-top: 6px;
         }
 
         .form-group {
@@ -166,7 +178,7 @@ exit;
 
         .form-group input {
             width: 100%;
-            padding: 11px 14px;
+            padding: 12px 14px;
             background: #000000;
             border: 1px solid #27272a;
             border-radius: 8px;
@@ -246,7 +258,14 @@ exit;
 <div class="auth-container">
     <div class="auth-card">
         <div class="brand-header">
-            <h1 class="logo-text">vende<span>+</span></h1>
+            <a href="index.php" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:10px;">
+                <svg width="32" height="32" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+                    <rect width="64" height="64" rx="16" fill="#09090b"/>
+                    <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M52 32 L52 44 M46 38 L58 38" stroke="#10b981" stroke-width="5.5" stroke-linecap="round"/>
+                </svg>
+                <h1 class="logo-text">vende<span>+</span></h1>
+            </a>
             <p class="brand-subtitle">Crie sua conta para começar a gerenciar</p>
         </div>
 
@@ -257,16 +276,13 @@ exit;
         <?php endif; ?>
 
         <form method="POST" action="">
-            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-
-            <div class="form-group">
-                <label for="nome_empresa">Nome da Empresa / Fantasia</label>
-                <input type="text" id="nome_empresa" name="nome_empresa" placeholder="Ex: Minha Loja" value="<?= htmlspecialchars($_POST['nome_empresa'] ?? '') ?>" required autofocus>
-            </div>
+            <?php if (function_exists('csrf_token')): ?>
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+            <?php endif; ?>
 
             <div class="form-group">
                 <label for="nome_usuario">Seu Nome Completo</label>
-                <input type="text" id="nome_usuario" name="nome_usuario" placeholder="Ex: João da Silva" value="<?= htmlspecialchars($_POST['nome_usuario'] ?? '') ?>" required>
+                <input type="text" id="nome_usuario" name="nome_usuario" placeholder="Ex: João da Silva" value="<?= htmlspecialchars($_POST['nome_usuario'] ?? '') ?>" required autofocus>
             </div>
 
             <div class="form-group">

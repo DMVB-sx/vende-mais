@@ -6,105 +6,120 @@ error_reporting(E_ALL);
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-
 require_once __DIR__ . '/config/conexao.php';
-require_once __DIR__ . '/config/brevo.php';
 
-$mensagem_sucesso = '';
-$mensagem_erro = '';
+$erro = '';
+$sucesso = '';
+$token = trim($_GET['token'] ?? '');
+$etapa = 'solicitar'; // 'solicitar' ou 'redefinir'
 
-// Identifica a etapa: se há token na URL ou na sessão/POST, exibe o formulário de redefinição
-$token_param = trim($_GET['token'] ?? $_POST['token'] ?? '');
-$etapa = (!empty($token_param)) ? 'redefinir' : 'solicitar';
+// Se houver token na URL, valida se existe e não expirou (30 min)
+if (!empty($token)) {
+    $stmtToken = $pdo->prepare("
+        SELECT id, email, token_recuperacao_expira 
+        FROM usuarios 
+        WHERE token_recuperacao = ? 
+        LIMIT 1
+    ");
+    $stmtToken->execute([$token]);
+    $userToken = $stmtToken->fetch(PDO::FETCH_ASSOC);
 
-/*
-|--------------------------------------------------------------------------
-| 1. PROCESSA SOLICITAÇÃO DE CÓDIGO (ETAPA 1)
-|--------------------------------------------------------------------------
-*/
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['acao']) && $_POST['acao'] === 'solicitar') {
-    $email = trim($_POST['email'] ?? '');
-
-    if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $mensagem_erro = "Por favor, informe um endereço de e-mail válido.";
-    } else {
-        // Busca usuário pelo e-mail
-        $stmt = $pdo->prepare("SELECT id, nome, email FROM usuarios WHERE email = ? LIMIT 1");
-        $stmt->execute([$email]);
-        $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($usuario) {
-            // Gera token numérico seguro de 6 dígitos
-            $token = str_pad(random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-            $expira = date('Y-m-d H:i:s', strtotime('+30 minutes'));
-
-            $stmtUpdate = $pdo->prepare("
-                UPDATE usuarios 
-                SET token_recuperacao = ?, token_expira_em = ? 
-                WHERE id = ?
-            ");
-            $stmtUpdate->execute([$token, $expira, $usuario['id']]);
-
-            // Dispara e-mail via API Brevo
-            $enviado = enviarEmailTokenBrevo($usuario['email'], $usuario['nome'], $token);
-
-            if ($enviado) {
-                $mensagem_sucesso = "Enviamos um código de recuperação para o seu e-mail. Verifique sua caixa de entrada e pasta de spam!";
-                // Transfere o fluxo para a tela de inserção do código
-                $etapa = 'redefinir';
-            } else {
-                $mensagem_erro = "Ocorreu um erro ao enviar o e-mail. Verifique suas credenciais da Brevo ou tente novamente.";
-            }
+    if ($userToken) {
+        if (strtotime($userToken['token_recuperacao_expira']) >= time()) {
+            $etapa = 'redefinir';
         } else {
-            // Mensagem genérica para prevenir enumeração de contas
-            $mensagem_sucesso = "Se o e-mail estiver cadastrado em nosso sistema, as instruções foram enviadas!";
+            $erro = "O link de recuperação expirou. Solicite um novo.";
         }
+    } else {
+        $erro = "Link de recuperação inválido.";
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| 2. PROCESSA REDEFINIÇÃO DE SENHA (ETAPA 2)
-|--------------------------------------------------------------------------
-*/
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['acao']) && $_POST['acao'] === 'redefinir') {
-    $token_digitado = trim($_POST['token'] ?? '');
-    $nova_senha = $_POST['nova_senha'] ?? '';
-    $confirma_senha = $_POST['confirma_senha'] ?? '';
+// Processamento POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (function_exists('validar_csrf')) {
+        validar_csrf();
+    }
 
-    if (empty($token_digitado)) {
-        $mensagem_erro = "Informe o código de 6 dígitos recebido.";
-    } elseif (strlen($nova_senha) < 6) {
-        $mensagem_erro = "A nova senha deve ter no mínimo 6 caracteres.";
-    } elseif ($nova_senha !== $confirma_senha) {
-        $mensagem_erro = "As senhas não coincidem. Digite novamente.";
-    } else {
-        // Valida token e expiração
-        $stmtValida = $pdo->prepare("
-            SELECT id 
-            FROM usuarios 
-            WHERE token_recuperacao = ? 
-              AND token_expira_em >= NOW() 
-            LIMIT 1
-        ");
-        $stmtValida->execute([$token_digitado]);
-        $usuario = $stmtValida->fetch(PDO::FETCH_ASSOC);
+    $acao = $_POST['acao'] ?? '';
 
-        if ($usuario) {
-            $senha_hash = password_hash($nova_senha, PASSWORD_DEFAULT);
+    // 1. SOLICITAÇÃO DE E-MAIL
+    if ($acao === 'solicitar') {
+        $email = trim($_POST['email'] ?? '');
 
-            // Atualiza senha e anula o token usado
-            $stmtTroca = $pdo->prepare("
-                UPDATE usuarios 
-                SET senha = ?, token_recuperacao = NULL, token_expira_em = NULL 
-                WHERE id = ?
-            ");
-            $stmtTroca->execute([$senha_hash, $usuario['id']]);
+        if (!empty($email)) {
+            $stmt = $pdo->prepare("SELECT id, nome, email FROM usuarios WHERE email = ? LIMIT 1");
+            $stmt->execute([$email]);
+            $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            $mensagem_sucesso = "Senha alterada com sucesso! Você já pode fazer login.";
-            $etapa = 'concluido';
+            if ($usuario) {
+                // Gera token de 6 dígitos ou hash alfanumérico seguro
+                $token_novo = bin2hex(random_bytes(16));
+                $expira = date('Y-m-d H:i:s', strtotime('+30 minutes'));
+
+                $stmtUpdate = $pdo->prepare("
+                    UPDATE usuarios 
+                    SET token_recuperacao = ?, token_recuperacao_expira = ? 
+                    WHERE id = ?
+                ");
+                $stmtUpdate->execute([$token_novo, $expira, $usuario['id']]);
+
+                // Disparo via Brevo
+                if (file_exists(__DIR__ . '/config/brevo.php')) {
+                    require_once __DIR__ . '/config/brevo.php';
+                    if (function_exists('enviarEmailRecuperacao')) {
+                        enviarEmailRecuperacao($usuario['email'], $usuario['nome'], $token_novo);
+                    }
+                }
+            }
+
+            // Mensagem genérica por segurança
+            $sucesso = "Se o e-mail informado estiver cadastrado, enviamos as instruções para recuperação de senha.";
         } else {
-            $mensagem_erro = "Código inválido ou expirado. Solicite um novo envio.";
+            $erro = "Por favor, informe o seu e-mail.";
+        }
+    }
+
+    // 2. REDEFINIÇÃO DE SENHA
+    elseif ($acao === 'redefinir') {
+        $token_post = trim($_POST['token'] ?? '');
+        $nova_senha = $_POST['nova_senha'] ?? '';
+        $confirmar_senha = $_POST['confirmar_senha'] ?? '';
+
+        if (!empty($token_post) && !empty($nova_senha)) {
+            if (strlen($nova_senha) < 6) {
+                $erro = "A nova senha deve ter pelo menos 6 caracteres.";
+                $etapa = 'redefinir';
+            } elseif ($nova_senha !== $confirmar_senha) {
+                $erro = "As senhas informadas não coincidem.";
+                $etapa = 'redefinir';
+            } else {
+                $stmtCheck = $pdo->prepare("
+                    SELECT id 
+                    FROM usuarios 
+                    WHERE token_recuperacao = ? AND token_recuperacao_expira >= NOW() 
+                    LIMIT 1
+                ");
+                $stmtCheck->execute([$token_post]);
+                $userRedefinir = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+
+                if ($userRedefinir) {
+                    $novo_hash = password_hash($nova_senha, PASSWORD_DEFAULT);
+                    $stmtPass = $pdo->prepare("
+                        UPDATE usuarios 
+                        SET senha = ?, token_recuperacao = NULL, token_recuperacao_expira = NULL 
+                        WHERE id = ?
+                    ");
+                    $stmtPass->execute([$novo_hash, $userRedefinir['id']]);
+
+                    header("Location: login.php?msg=senha_alterada");
+                    exit;
+                } else {
+                    $erro = "Token inválido ou expirado. Tente solicitar novamente.";
+                }
+            }
+        } else {
+            $erro = "Preencha todos os campos obrigatórios.";
             $etapa = 'redefinir';
         }
     }
@@ -114,152 +129,303 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['acao']) && $_POST['ac
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Recuperar Senha | Vende+</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        dark: {
-                            950: '#060608',
-                            900: '#09090b',
-                            800: '#121215',
-                            700: '#18181b',
-                            600: '#27272a',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
+    
+    <!-- FAVICON -->
+    <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
+
     <style>
-        .glow-emerald { box-shadow: 0 0 50px -10px rgba(16, 185, 129, 0.15); }
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #000000;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px 16px;
+        }
+
+        .auth-container {
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .auth-card {
+            background-color: #09090b;
+            border: 1px solid #18181b;
+            border-radius: 14px;
+            padding: 32px 28px;
+            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
+        }
+
+        .brand-header {
+            text-align: center;
+            margin-bottom: 26px;
+        }
+
+        .logo-text {
+            font-size: 28px;
+            font-weight: 900;
+            color: #ffffff;
+            letter-spacing: -1px;
+            margin: 0;
+        }
+
+        .logo-text span {
+            color: #10b981;
+        }
+
+        .brand-subtitle {
+            font-size: 13.5px;
+            color: #71717a;
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            color: #a1a1aa;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 14px;
+            background: #000000;
+            border: 1px solid #27272a;
+            border-radius: 8px;
+            color: #ffffff;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .form-group input:focus {
+            border-color: #10b981;
+            box-shadow: 0 0 0 1px #10b981;
+        }
+
+        .form-group input::placeholder {
+            color: #52525b;
+        }
+
+        .password-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .password-wrapper input {
+            padding-right: 44px;
+        }
+
+        .toggle-password {
+            position: absolute;
+            right: 12px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #71717a;
+            transition: color 0.2s;
+        }
+
+        .toggle-password:hover {
+            color: #10b981;
+        }
+
+        .btn-submit {
+            width: 100%;
+            background-color: #10b981;
+            color: #000000;
+            font-weight: 700;
+            font-size: 14px;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-top: 10px;
+        }
+
+        .btn-submit:hover {
+            background-color: #059669;
+        }
+
+        .btn-submit:active {
+            transform: scale(0.99);
+        }
+
+        .auth-footer {
+            margin-top: 24px;
+            text-align: center;
+            font-size: 13px;
+            color: #71717a;
+        }
+
+        .auth-footer a {
+            color: #10b981;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s;
+        }
+
+        .auth-footer a:hover {
+            color: #34d399;
+            text-decoration: underline;
+        }
+
+        .alert {
+            padding: 12px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 18px;
+            line-height: 1.4;
+        }
+
+        .alert-error {
+            background-color: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            color: #f87171;
+        }
+
+        .alert-success {
+            background-color: rgba(16, 185, 129, 0.1);
+            border: 1px solid #10b981;
+            color: #34d399;
+        }
     </style>
 </head>
-<body class="bg-black text-slate-100 font-sans antialiased selection:bg-emerald-500 selection:text-black min-h-screen flex items-center justify-center p-4">
+<body>
 
-    <div class="max-w-md w-full bg-dark-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 shadow-2xl glow-emerald">
-        
-        <!-- Logo -->
-        <div class="text-center mb-6">
-            <a href="index.php" class="inline-block text-2xl font-extrabold tracking-tight text-white mb-2">
-                vende<span class="text-emerald-500">+</span>
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="brand-header">
+            <a href="index.php" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:10px;">
+                <svg width="32" height="32" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+                    <rect width="64" height="64" rx="16" fill="#09090b"/>
+                    <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M52 32 L52 44 M46 38 L58 38" stroke="#10b981" stroke-width="5.5" stroke-linecap="round"/>
+                </svg>
+                <h1 class="logo-text">vende<span>+</span></h1>
             </a>
-            <h1 class="text-lg font-bold text-white">Recuperação de Senha</h1>
-            <p class="text-xs text-zinc-400 mt-1">
-                <?= $etapa === 'redefinir' ? 'Digite o código de verificação recebido e sua nova senha' : 'Informe seu e-mail cadastrado para redefinir o acesso' ?>
+            <p class="brand-subtitle">
+                <?= $etapa === 'redefinir' ? 'Digite sua nova senha abaixo' : 'Informe seu e-mail cadastrado para redefinir o acesso' ?>
             </p>
         </div>
 
-        <!-- Alertas de Feedback -->
-        <?php if (!empty($mensagem_erro)): ?>
-            <div class="mb-5 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-xl p-3.5 flex items-start gap-2">
-                <span>⚠️</span>
-                <span><?= htmlspecialchars($mensagem_erro) ?></span>
+        <?php if (!empty($sucesso)): ?>
+            <div class="alert alert-success">
+                📩 <?= htmlspecialchars($sucesso) ?>
             </div>
         <?php endif; ?>
 
-        <?php if (!empty($mensagem_sucesso)): ?>
-            <div class="mb-5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-xl p-3.5 flex items-start gap-2">
-                <span>✓</span>
-                <span><?= htmlspecialchars($mensagem_sucesso) ?></span>
+        <?php if (!empty($erro)): ?>
+            <div class="alert alert-error">
+                ⚠️ <?= htmlspecialchars($erro) ?>
             </div>
         <?php endif; ?>
 
-        <?php if ($etapa === 'concluido'): ?>
-            <!-- Tela Final de Sucesso -->
-            <div class="text-center pt-2">
-                <a href="login.php" class="w-full inline-block bg-emerald-500 hover:bg-emerald-400 text-black text-xs sm:text-sm font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-emerald-500/20">
-                    Ir para o Login
-                </a>
-            </div>
-
-        <?php elseif ($etapa === 'redefinir'): ?>
-            <!-- Formulário: Etapa 2 (Código + Nova Senha) -->
-            <form method="POST" action="recuperar-senha.php" class="space-y-4">
-                <input type="hidden" name="acao" value="redefinir">
-
-                <div>
-                    <label class="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Código de 6 Dígitos</label>
-                    <input 
-                        type="text" 
-                        name="token" 
-                        value="<?= htmlspecialchars($token_param) ?>" 
-                        placeholder="Ex: 123456" 
-                        required 
-                        maxlength="6"
-                        class="w-full bg-dark-800 border border-zinc-700 focus:border-emerald-500 text-white text-center text-lg tracking-widest font-mono rounded-xl px-4 py-3 outline-none transition-all placeholder:text-zinc-600 placeholder:tracking-normal placeholder:font-sans placeholder:text-xs"
-                    >
-                </div>
-
-                <div>
-                    <label class="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Nova Senha</label>
-                    <input 
-                        type="password" 
-                        name="nova_senha" 
-                        placeholder="Mínimo 6 caracteres" 
-                        required 
-                        minlength="6"
-                        class="w-full bg-dark-800 border border-zinc-700 focus:border-emerald-500 text-white text-xs sm:text-sm rounded-xl px-4 py-3 outline-none transition-all placeholder:text-zinc-600"
-                    >
-                </div>
-
-                <div>
-                    <label class="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Confirmar Nova Senha</label>
-                    <input 
-                        type="password" 
-                        name="confirma_senha" 
-                        placeholder="Repita a nova senha" 
-                        required 
-                        minlength="6"
-                        class="w-full bg-dark-800 border border-zinc-700 focus:border-emerald-500 text-white text-xs sm:text-sm rounded-xl px-4 py-3 outline-none transition-all placeholder:text-zinc-600"
-                    >
-                </div>
-
-                <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-400 text-black text-xs sm:text-sm font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-emerald-500/20 cursor-pointer">
-                    Salvar Nova Senha
-                </button>
-
-                <div class="text-center pt-2">
-                    <a href="recuperar-senha.php" class="text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
-                        Reenviar outro código
-                    </a>
-                </div>
-            </form>
-
-        <?php else: ?>
-            <!-- Formulário: Etapa 1 (Solicitar Código via E-mail) -->
-            <form method="POST" action="recuperar-senha.php" class="space-y-4">
+        <?php if ($etapa === 'solicitar'): ?>
+            <!-- FORMULÁRIO: PEDIR LINK -->
+            <form method="POST" action="">
+                <?php if (function_exists('csrf_token')): ?>
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                <?php endif; ?>
                 <input type="hidden" name="acao" value="solicitar">
 
-                <div>
-                    <label class="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">Seu E-mail Cadastrado</label>
-                    <input 
-                        type="email" 
-                        name="email" 
-                        placeholder="exemplo@dominio.com" 
-                        required 
-                        class="w-full bg-dark-800 border border-zinc-700 focus:border-emerald-500 text-white text-xs sm:text-sm rounded-xl px-4 py-3 outline-none transition-all placeholder:text-zinc-600"
-                    >
+                <div class="form-group">
+                    <label for="email">E-mail Cadastrado</label>
+                    <input type="email" id="email" name="email" placeholder="seuemail@exemplo.com" value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required autofocus>
                 </div>
 
-                <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-400 text-black text-xs sm:text-sm font-bold py-3.5 rounded-xl transition-all shadow-lg shadow-emerald-500/20 cursor-pointer">
-                    Enviar Código de Recuperação
-                </button>
+                <button type="submit" class="btn-submit">Enviar Link de Recuperação</button>
+            </form>
+        <?php else: ?>
+            <!-- FORMULÁRIO: CRIAR NOVA SENHA -->
+            <form method="POST" action="">
+                <?php if (function_exists('csrf_token')): ?>
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                <?php endif; ?>
+                <input type="hidden" name="acao" value="redefinir">
+                <input type="hidden" name="token" value="<?= htmlspecialchars($token) ?>">
 
-                <div class="text-center pt-2">
-                    <a href="login.php" class="text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
-                        ← Voltar para o Login
-                    </a>
+                <div class="form-group">
+                    <label for="nova_senha">Nova Senha</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="nova_senha" name="nova_senha" placeholder="Mínimo 6 caracteres" required autofocus>
+                        <button type="button" class="toggle-password" onclick="toggleSenha('nova_senha', 'eye-1', 'eye-slash-1')">
+                            <svg id="eye-1" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            <svg id="eye-slash-1" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
+
+                <div class="form-group">
+                    <label for="confirmar_senha">Confirmar Nova Senha</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="confirmar_senha" name="confirmar_senha" placeholder="Repita a nova senha" required>
+                        <button type="button" class="toggle-password" onclick="toggleSenha('confirmar_senha', 'eye-2', 'eye-slash-2')">
+                            <svg id="eye-2" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            <svg id="eye-slash-2" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-submit">Salvar Nova Senha</button>
             </form>
         <?php endif; ?>
 
+        <div class="auth-footer">
+            Lembrou da senha? <a href="login.php">Voltar para o login</a>
+        </div>
     </div>
+</div>
+
+<script>
+    function toggleSenha(inputId, eyeId, eyeSlashId) {
+        const input = document.getElementById(inputId);
+        const eye = document.getElementById(eyeId);
+        const eyeSlash = document.getElementById(eyeSlashId);
+
+        if (input.type === 'password') {
+            input.type = 'text';
+            eye.style.display = 'none';
+            eyeSlash.style.display = 'block';
+        } else {
+            input.type = 'password';
+            eye.style.display = 'block';
+            eyeSlash.style.display = 'none';
+        }
+    }
+</script>
 
 </body>
 </html>

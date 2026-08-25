@@ -1,12 +1,15 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-
-require_once 'config/conexao.php';
+require_once __DIR__ . '/config/conexao.php';
 
 // Se já estiver logado, redireciona
-if (isset($_SESSION['usuario_id']) && (int)$_SESSION['usuario_id'] > 0) {
+if (isset($_SESSION['usuario_id']) && !empty($_SESSION['usuario_id'])) {
     header("Location: index.php?page=dashboard");
     exit;
 }
@@ -14,57 +17,55 @@ if (isset($_SESSION['usuario_id']) && (int)$_SESSION['usuario_id'] > 0) {
 $erro = '';
 $sucesso = '';
 
-if (isset($_GET['msg']) && $_GET['msg'] === 'sucesso') {
-    $sucesso = "Conta criada com sucesso! Faça login para continuar.";
+// Captura mensagens via GET
+if (isset($_GET['msg'])) {
+    if ($_GET['msg'] === 'verifique_email') {
+        $sucesso = "Cadastro realizado! Enviamos um link de confirmação para o seu e-mail. Por favor, valide sua conta antes de entrar.";
+    } elseif ($_GET['msg'] === 'email_confirmado') {
+        $sucesso = "E-mail confirmado com sucesso! Você já pode entrar.";
+    }
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (function_exists('validar_csrf')) {
+        validar_csrf();
+    }
+
     $email = trim($_POST['email'] ?? '');
     $senha = $_POST['senha'] ?? '';
 
-    if (empty($email) || empty($senha)) {
-        $erro = "Preencha todos os campos.";
-    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $erro = "Informe um e-mail válido.";
-    } else {
+    if (!empty($email) && !empty($senha)) {
         try {
-            $stmt = $pdo->prepare("SELECT id, nome, email, senha, empresa_id FROM usuarios WHERE email = ? LIMIT 1");
+            $stmt = $pdo->prepare("
+                SELECT id, empresa_id, nome, email, senha, email_verificado 
+                FROM usuarios 
+                WHERE email = ? 
+                LIMIT 1
+            ");
             $stmt->execute([$email]);
             $usuario = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($usuario && password_verify($senha, $usuario['senha'])) {
-                $empresa_id = (int)($usuario['empresa_id'] ?? 0);
+                // VERIFICA SE O E-MAIL FOI CONFIRMADO
+                if (isset($usuario['email_verificado']) && (int)$usuario['email_verificado'] === 0) {
+                    $erro = "Sua conta ainda não foi ativada. Verifique a caixa de entrada (ou spam) do seu e-mail e clique no link de confirmação.";
+                } else {
+                    $_SESSION['usuario_id'] = $usuario['id'];
+                    $_SESSION['empresa_id'] = $usuario['empresa_id'];
+                    $_SESSION['usuario_nome'] = $usuario['nome'];
 
-                // Grava a sessão
-                $_SESSION['usuario_id']   = (int)$usuario['id'];
-                $_SESSION['usuario_nome'] = $usuario['nome'];
-                $_SESSION['empresa_id']   = $empresa_id;
-
-                // Busca dados da empresa
-                if ($empresa_id > 0) {
-                    $stmtEmp = $pdo->prepare("SELECT * FROM empresas WHERE id = ? LIMIT 1");
-                    $stmtEmp->execute([$empresa_id]);
-                    $emp = $stmtEmp->fetch(PDO::FETCH_ASSOC);
-                    if ($emp) {
-                        $_SESSION['empresa_nome'] = $emp['nome'] ?? $emp['nome_fantasia'] ?? 'Minha Empresa';
-                        $_SESSION['empresa_doc']  = $emp['cnpj_cpf'] ?? $emp['cnpj'] ?? $emp['cpf'] ?? '';
-                    }
+                    header("Location: index.php?page=dashboard");
+                    exit;
                 }
-
-                // Salva a sessão no servidor antes de redirecionar
-                session_write_close();
-
-                // Redirecionamento duplo (PHP Header + fallback JS)
-                header("Location: index.php?page=dashboard");
-                echo "<script>window.location.href='index.php?page=dashboard';</script>";
-                exit;
             } else {
                 $erro = "E-mail ou senha incorretos.";
             }
         } catch (Throwable $e) {
             error_log($e->getMessage());
-            $erro = "Erro ao autenticar: " . $e->getMessage();
+            $erro = "Ocorreu um erro no login. Tente novamente.";
         }
+    } else {
+        $erro = "Preencha o e-mail e a senha.";
     }
 }
 ?>
@@ -74,8 +75,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Entrar | Vende+</title>
+    
+    <!-- FAVICON -->
+    <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
+
     <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
             background-color: #000000;
             color: #ffffff;
@@ -86,23 +96,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             justify-content: center;
             padding: 20px 16px;
         }
-        .auth-container { width: 100%; max-width: 400px; }
+
+        .auth-container {
+            width: 100%;
+            max-width: 420px;
+        }
+
         .auth-card {
             background-color: #09090b;
             border: 1px solid #18181b;
-            border-radius: 12px;
+            border-radius: 14px;
             padding: 32px 28px;
             box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7);
         }
-        .brand-header { text-align: center; margin-bottom: 26px; }
-        .logo-text { font-size: 28px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; margin-bottom: 6px; }
-        .logo-text span { color: #10b981; }
-        .brand-subtitle { font-size: 13.5px; color: #71717a; }
-        .form-group { margin-bottom: 18px; }
-        .form-group label { display: block; font-size: 13px; color: #a1a1aa; margin-bottom: 6px; font-weight: 500; }
+
+        .brand-header {
+            text-align: center;
+            margin-bottom: 26px;
+        }
+
+        .logo-text {
+            font-size: 28px;
+            font-weight: 900;
+            color: #ffffff;
+            letter-spacing: -1px;
+            margin: 0;
+        }
+
+        .logo-text span {
+            color: #10b981;
+        }
+
+        .brand-subtitle {
+            font-size: 13.5px;
+            color: #71717a;
+            margin-top: 6px;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            color: #a1a1aa;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
         .form-group input {
             width: 100%;
-            padding: 11px 14px;
+            padding: 12px 14px;
             background: #000000;
             border: 1px solid #27272a;
             border-radius: 8px;
@@ -111,7 +156,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             outline: none;
             transition: border-color 0.2s, box-shadow 0.2s;
         }
-        .form-group input:focus { border-color: #10b981; box-shadow: 0 0 0 1px #10b981; }
+
+        .form-group input:focus {
+            border-color: #10b981;
+            box-shadow: 0 0 0 1px #10b981;
+        }
+
+        .form-group input::placeholder {
+            color: #52525b;
+        }
+
+        /* Container do input de senha com botão de olho */
+        .password-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .password-wrapper input {
+            padding-right: 44px;
+        }
+
+        .toggle-password {
+            position: absolute;
+            right: 12px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #71717a;
+            transition: color 0.2s;
+        }
+
+        .toggle-password:hover {
+            color: #10b981;
+        }
+
+        .forgot-wrapper {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 7px;
+        }
+
+        .forgot-link {
+            font-size: 12.5px;
+            color: #10b981;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .forgot-link:hover {
+            color: #34d399;
+            text-decoration: underline;
+        }
+
         .btn-submit {
             width: 100%;
             background-color: #10b981;
@@ -123,13 +225,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-radius: 8px;
             cursor: pointer;
             transition: all 0.2s ease;
+            margin-top: 10px;
         }
-        .btn-submit:hover { background-color: #059669; }
-        .auth-footer { margin-top: 24px; text-align: center; font-size: 13px; color: #71717a; }
-        .auth-footer a { color: #10b981; text-decoration: none; font-weight: 600; }
-        .alert { padding: 11px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 18px; }
-        .alert-error { background-color: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; color: #f87171; }
-        .alert-success { background-color: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; color: #34d399; }
+
+        .btn-submit:hover {
+            background-color: #059669;
+        }
+
+        .btn-submit:active {
+            transform: scale(0.99);
+        }
+
+        .auth-footer {
+            margin-top: 24px;
+            text-align: center;
+            font-size: 13px;
+            color: #71717a;
+        }
+
+        .auth-footer a {
+            color: #10b981;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s;
+        }
+
+        .auth-footer a:hover {
+            color: #34d399;
+            text-decoration: underline;
+        }
+
+        .alert {
+            padding: 12px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 18px;
+            line-height: 1.4;
+        }
+
+        .alert-error {
+            background-color: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+            color: #f87171;
+        }
+
+        .alert-success {
+            background-color: rgba(16, 185, 129, 0.1);
+            border: 1px solid #10b981;
+            color: #34d399;
+        }
     </style>
 </head>
 <body>
@@ -137,9 +281,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <div class="auth-container">
     <div class="auth-card">
         <div class="brand-header">
-            <h1 class="logo-text">vende<span>+</span></h1>
-            <p class="brand-subtitle">Acesse seu painel financeiro</p>
+            <a href="index.php" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:10px;">
+                <svg width="32" height="32" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+                    <rect width="64" height="64" rx="16" fill="#09090b"/>
+                    <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M52 32 L52 44 M46 38 L58 38" stroke="#10b981" stroke-width="5.5" stroke-linecap="round"/>
+                </svg>
+                <h1 class="logo-text">vende<span>+</span></h1>
+            </a>
+            <p class="brand-subtitle">Entre para gerenciar seu negócio</p>
         </div>
+
+        <?php if (!empty($sucesso)): ?>
+            <div class="alert alert-success">
+                📩 <?= htmlspecialchars($sucesso) ?>
+            </div>
+        <?php endif; ?>
 
         <?php if (!empty($erro)): ?>
             <div class="alert alert-error">
@@ -147,45 +304,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         <?php endif; ?>
 
-        <?php if (!empty($sucesso)): ?>
-            <div class="alert alert-success">
-                ✅ <?= htmlspecialchars($sucesso) ?>
-            </div>
-        <?php endif; ?>
+        <form method="POST" action="">
+            <?php if (function_exists('csrf_token')): ?>
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+            <?php endif; ?>
 
-        <form method="POST" action="login.php">
             <div class="form-group">
                 <label for="email">E-mail</label>
-                <input
-                    type="email"
-                    id="email"
-                    name="email"
-                    placeholder="seuemail@exemplo.com"
-                    value="<?= htmlspecialchars($_POST['email'] ?? '') ?>"
-                    required
-                    autofocus
-                >
+                <input type="email" id="email" name="email" placeholder="seuemail@exemplo.com" value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required autofocus>
             </div>
 
             <div class="form-group">
                 <label for="senha">Senha</label>
-                <input
-                    type="password"
-                    id="senha"
-                    name="senha"
-                    placeholder="Sua senha de acesso"
-                    required
-                >
+                <div class="password-wrapper">
+                    <input type="password" id="senha" name="senha" placeholder="Digite sua senha" required>
+                    <button type="button" class="toggle-password" onclick="toggleSenhaVisualizacao()" title="Mostrar/Ocultar Senha" aria-label="Mostrar ou ocultar senha">
+                        <!-- Ícone Olho Aberto -->
+                        <svg id="eye-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        <!-- Ícone Olho Fechado -->
+                        <svg id="eye-slash-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="forgot-wrapper">
+                    <a href="recuperar-senha.php" class="forgot-link">Esqueceu a senha?</a>
+                </div>
             </div>
 
-            <button type="submit" class="btn-submit">Entrar no Sistema</button>
+            <button type="submit" class="btn-submit">Entrar</button>
         </form>
 
         <div class="auth-footer">
-            Não tem uma conta? <a href="cadastro.php">Cadastre-se</a>
+            Não tem uma conta? <a href="cadastro.php">Cadastre-se grátis</a>
         </div>
     </div>
 </div>
+
+<script>
+    function toggleSenhaVisualizacao() {
+        const campoSenha = document.getElementById('senha');
+        const eyeIcon = document.getElementById('eye-icon');
+        const eyeSlashIcon = document.getElementById('eye-slash-icon');
+
+        if (campoSenha.type === 'password') {
+            campoSenha.type = 'text';
+            eyeIcon.style.display = 'none';
+            eyeSlashIcon.style.display = 'block';
+        } else {
+            campoSenha.type = 'password';
+            eyeIcon.style.display = 'block';
+            eyeSlashIcon.style.display = 'none';
+        }
+    }
+</script>
 
 </body>
 </html>

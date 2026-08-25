@@ -78,6 +78,13 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
     align-items: flex-start;
 }
 
+.brand-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+}
+
 .logo-text {
     font-size: 22px;
     font-weight: 800;
@@ -93,7 +100,7 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
 .company-tag {
     font-size: 13px;
     color: #a1a1aa;
-    margin-top: 5px;
+    margin-top: 6px;
     margin-bottom: 2px;
     font-weight: 600;
     white-space: nowrap;
@@ -167,9 +174,9 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
 @media screen and (max-width: 768px) {
     .mobile-header {
         display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 10px;
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
         background-color: #09090b;
         border-bottom: 1px solid #18181b;
         padding: 14px 16px;
@@ -241,7 +248,14 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
 
 <!-- Header Mobile -->
 <div class="mobile-header">
-    <h1 class="logo-text" style="font-size: 22px; margin: 0;">vende<span>+</span></h1>
+    <a href="index.php?page=dashboard" class="brand-wrapper">
+        <svg width="26" height="26" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+            <rect width="64" height="64" rx="16" fill="#09090b"/>
+            <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M52 32 L52 44 M46 38 L58 38" stroke="#10b981" stroke-width="5.5" stroke-linecap="round"/>
+        </svg>
+        <h1 class="logo-text">vende<span>+</span></h1>
+    </a>
     <button type="button" class="btn-menu-toggle" onclick="toggleSidebar()">
         <span>☰</span> Menu
     </button>
@@ -252,8 +266,16 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
 <!-- Menu Lateral -->
 <aside class="sidebar" id="sidebarMenu">
     <div class="sidebar-header">
-        <div>
-            <h1 class="logo-text">vende<span>+</span></h1>
+        <div style="width: 100%; overflow: hidden;">
+            <a href="index.php?page=dashboard" class="brand-wrapper">
+                <svg width="28" height="28" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+                    <rect width="64" height="64" rx="16" fill="#09090b"/>
+                    <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M52 32 L52 44 M46 38 L58 38" stroke="#10b981" stroke-width="5.5" stroke-linecap="round"/>
+                </svg>
+                <h1 class="logo-text">vende<span>+</span></h1>
+            </a>
+            
             <p class="company-tag"><?= htmlspecialchars($nomeEmpresaExibicao) ?></p>
             <?php if (!empty($docFormatado)): ?>
                 <span class="company-doc"><?= htmlspecialchars($docFormatado) ?></span>
