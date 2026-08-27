@@ -95,7 +95,7 @@ if (
         $mensagem = '
             <div class="flex items-start gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-6 text-sm">
                 <i data-lucide="alert-circle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
-                <div><strong class="font-semibold block text-rose-300">' . htmlspecialchars($e->getMessage()) . '</strong></div>
+                <div><strong class="font-semibold block text-rose-300">Não foi possível cancelar a compra. Tente novamente.</strong></div>
             </div>
         ';
     }
@@ -265,7 +265,7 @@ if (
         $mensagem = '
             <div class="flex items-start gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-6 text-sm">
                 <i data-lucide="alert-triangle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
-                <div><strong class="font-semibold block text-rose-300">' . htmlspecialchars($e->getMessage()) . '</strong></div>
+                <div><strong class="font-semibold block text-rose-300">Não foi possível salvar a compra. Tente novamente.</strong></div>
             </div>
         ';
     }
