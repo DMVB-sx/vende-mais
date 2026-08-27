@@ -1,12 +1,54 @@
 <?php
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
+// 1. Silencia notices e warnings de permissão de pasta temporária do PHP
+error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
+ini_set('display_errors', 0);
 
+// 2. Define o fuso horário oficial de Brasília
+date_default_timezone_set('America/Sao_Paulo');
+
+// 3. Inicia a sessão com o operador de supressão @
 if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+    @session_start();
 }
 require_once __DIR__ . '/config/conexao.php';
+
+// Sincroniza fuso horário no MySQL
+if (isset($pdo)) {
+    try {
+        $pdo->exec("SET time_zone = '-03:00'");
+    } catch (Throwable $e) {}
+}
+
+/*
+|--------------------------------------------------------------------------
+| VALIDAÇÃO DE E-MAIL VIA TOKEN DIRETO (SE HOUVER NA URL)
+|--------------------------------------------------------------------------
+*/
+if (isset($_GET['validar_token']) && !empty($_GET['validar_token'])) {
+    $token = trim($_GET['validar_token']);
+    try {
+        $stmtVal = $pdo->prepare("SELECT id, token_expira FROM usuarios WHERE token_verificacao = ? LIMIT 1");
+        $stmtVal->execute([$token]);
+        $userVal = $stmtVal->fetch(PDO::FETCH_ASSOC);
+
+        if ($userVal) {
+            if (!empty($userVal['token_expira']) && strtotime($userVal['token_expira']) < time()) {
+                header("Location: login.php?erro=token_expirado");
+                exit;
+            }
+            $upVal = $pdo->prepare("UPDATE usuarios SET email_verificado = 1, token_verificacao = NULL, token_expira = NULL WHERE id = ?");
+            $upVal->execute([$userVal['id']]);
+            header("Location: login.php?msg=email_confirmado");
+            exit;
+        } else {
+            header("Location: login.php?erro=token_invalido");
+            exit;
+        }
+    } catch (Throwable $e) {
+        header("Location: login.php?erro=falha_validacao");
+        exit;
+    }
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -24,6 +66,15 @@ if (!isset($_SESSION['usuario_id']) || empty($_SESSION['usuario_id'])) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+        <!-- PWA E MOBILE CONFIGURAÇÕES -->
+        <link rel="manifest" href="/manifest.json">
+        <meta name="theme-color" content="#09090b">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <meta name="apple-mobile-web-app-title" content="Vende+">
+        <link rel="apple-touch-icon" href="/assets/img/icon-192.png">
 
         <!-- FAVICON DA ABA DO NAVEGADOR -->
         <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
@@ -552,6 +603,16 @@ if (!isset($_SESSION['usuario_id']) || empty($_SESSION['usuario_id'])) {
             <p>© <?= date('Y') ?> Vende+. Todos os direitos reservados.</p>
         </footer>
 
+        <!-- REGISTRO DO SERVICE WORKER PWA -->
+        <script>
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('/sw.js')
+                        .then((reg) => console.log('PWA Service Worker registrado!', reg))
+                        .catch((err) => console.log('Erro ao registrar Service Worker:', err));
+                });
+            }
+        </script>
     </body>
     </html>
     <?php
@@ -628,14 +689,16 @@ if ($bloqueado) {
 |--------------------------------------------------------------------------
 */
 $pagina = $_GET['page'] ?? 'dashboard';
+$page = $pagina;
 
 $paginas_permitidas = [
-    'dashboard' => 'views/dashboard.php',
-    'produtos'  => 'views/produtos.php',
-    'vendas'    => 'views/vendas.php',
-    'compras'   => 'views/compras.php',
-    'despesas'  => 'views/despesas.php',
-    'perfil'    => 'views/perfil.php',
+    'dashboard'  => 'views/dashboard.php',
+    'produtos'   => 'views/produtos.php',
+    'vendas'     => 'views/vendas.php',
+    'a-receber'  => 'views/a-receber.php',
+    'compras'    => 'views/compras.php',
+    'despesas'   => 'views/despesas.php',
+    'perfil'     => 'views/perfil.php',
 ];
 
 $arquivo_relativo = $paginas_permitidas[$pagina] ?? 'views/dashboard.php';
@@ -651,9 +714,20 @@ if (!file_exists($arquivo_completo)) {
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <!-- PWA E MOBILE CONFIGURAÇÕES -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#09090b">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Vende+">
+    <link rel="apple-touch-icon" href="/assets/img/icon-192.png">
+
     <!-- FAVICON NA ABA DO PAINEL -->
     <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
     <title>Painel | Vende+</title>
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="/assets/css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -670,5 +744,15 @@ if (!file_exists($arquivo_completo)) {
         <?php require_once $arquivo_completo; ?>
     </main>
 
+    <!-- REGISTRO DO SERVICE WORKER PWA -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then((reg) => console.log('PWA Service Worker registrado com sucesso!', reg))
+                    .catch((err) => console.log('Erro ao registrar Service Worker:', err));
+            });
+        }
+    </script>
 </body>
 </html>

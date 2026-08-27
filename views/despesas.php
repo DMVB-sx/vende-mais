@@ -3,2413 +3,364 @@
 $mensagem = '';
 $empresa_id = $_SESSION['empresa_id'] ?? 0;
 
+/*
+|--------------------------------------------------------------------------
+| FUNÇÃO AUXILIAR: TRATAMENTO DE VALORES MONETÁRIOS
+|--------------------------------------------------------------------------
+*/
+function converterMoedaParaFloat($valor) {
+    if (empty($valor)) return 0.0;
+    $v = trim((string)$valor);
+    
+    // Se possui vírgula (ex: 10,00 ou 1.250,50)
+    if (strpos($v, ',') !== false) {
+        $v = str_replace('.', '', $v);
+        $v = str_replace(',', '.', $v);
+    }
+    return (float)$v;
+}
 
 /*
 |--------------------------------------------------------------------------
-| 1. AÇÕES
+| 1. EXCLUIR DESPESA
 |--------------------------------------------------------------------------
 */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['excluir_despesa'])) {
+    try {
+        if (function_exists('validar_csrf')) validar_csrf();
+        $id_del = (int)($_POST['id_despesa'] ?? 0);
 
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST' &&
-    isset($_POST['acao'])
-) {
+        if ($id_del > 0) {
+            $stmtDel = $pdo->prepare("DELETE FROM despesas WHERE id = ? AND empresa_id = ?");
+            $stmtDel->execute([$id_del, $empresa_id]);
 
-    validar_csrf();
-
-    $id_despesa = (int)($_POST['id'] ?? 0);
-
-
-    /*
-    |----------------------------------------------------------------------
-    | MARCAR COMO PAGO
-    |----------------------------------------------------------------------
-    */
-
-    if (
-        $_POST['acao'] === 'pagar' &&
-        $id_despesa > 0
-    ) {
-
-        $stmtPagar = $pdo->prepare("
-            UPDATE despesas
-            SET pago = TRUE
-            WHERE id = ?
-              AND empresa_id = ?
-        ");
-
-        $stmtPagar->execute([
-            $id_despesa,
-            $empresa_id
-        ]);
-
-
-        $mensagem = '
-            <div class="alerta-sucesso">
-                <span>✅</span>
-                <div>
-                    <strong>Despesa marcada como PAGA!</strong>
+            $mensagem = '
+                <div class="flex items-start gap-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl mb-6 text-sm">
+                    <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5"></i>
+                    <div><strong class="font-semibold block text-emerald-300">Despesa excluída com sucesso!</strong></div>
                 </div>
-            </div>
-        ';
-    }
-
-
-    /*
-    |----------------------------------------------------------------------
-    | EXCLUIR
-    |----------------------------------------------------------------------
-    */
-
-    elseif (
-        $_POST['acao'] === 'deletar' &&
-        $id_despesa > 0
-    ) {
-
-        $stmtDel = $pdo->prepare("
-            DELETE FROM despesas
-            WHERE id = ?
-              AND empresa_id = ?
-        ");
-
-        $stmtDel->execute([
-            $id_despesa,
-            $empresa_id
-        ]);
-
-
+            ';
+        }
+    } catch (Throwable $e) {
         $mensagem = '
-            <div class="alerta-sucesso">
-                <span>🗑️</span>
-                <div>
-                    <strong>Despesa removida com sucesso!</strong>
-                </div>
+            <div class="flex items-start gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-6 text-sm">
+                <i data-lucide="alert-circle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
+                <div><strong class="font-semibold block text-rose-300">Erro ao excluir despesa.</strong></div>
             </div>
         ';
     }
 }
 
+/*
+|--------------------------------------------------------------------------
+| 2. CADASTRAR OU EDITAR DESPESA
+|--------------------------------------------------------------------------
+*/
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['salvar_despesa'])) {
+    try {
+        if (function_exists('validar_csrf')) validar_csrf();
+
+        $id_despesa = (int)($_POST['id_despesa'] ?? 0);
+        $descricao = trim($_POST['descricao'] ?? '');
+        $categoria = trim($_POST['categoria'] ?? 'Operacional');
+        
+        $valor = converterMoedaParaFloat($_POST['valor'] ?? '0');
+        
+        $data_vencimento = trim($_POST['data_vencimento'] ?? '') ?: date('Y-m-d');
+        $pago = isset($_POST['pago']) ? 1 : 0;
+
+        if (empty($descricao)) {
+            throw new Exception('Informe a descrição da despesa.');
+        }
+
+        if ($valor <= 0) {
+            throw new Exception('O valor da despesa deve ser maior que zero.');
+        }
+
+        if ($id_despesa > 0) {
+            $stmtUp = $pdo->prepare("
+                UPDATE despesas 
+                SET descricao = ?, categoria = ?, valor = ?, data_vencimento = ?, pago = ? 
+                WHERE id = ? AND empresa_id = ?
+            ");
+            $stmtUp->execute([$descricao, $categoria, $valor, $data_vencimento, $pago, $id_despesa, $empresa_id]);
+
+            $mensagem = '
+                <div class="flex items-start gap-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl mb-6 text-sm">
+                    <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5"></i>
+                    <div><strong class="font-semibold block text-emerald-300">Despesa atualizada com sucesso!</strong></div>
+                </div>
+            ';
+        } else {
+            $stmtIns = $pdo->prepare("
+                INSERT INTO despesas (empresa_id, descricao, categoria, valor, data_vencimento, pago) 
+                VALUES (?, ?, ?, ?, ?, ?)
+            ");
+            $stmtIns->execute([$empresa_id, $descricao, $categoria, $valor, $data_vencimento, $pago]);
+
+            $mensagem = '
+                <div class="flex items-start gap-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl mb-6 text-sm">
+                    <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5"></i>
+                    <div><strong class="font-semibold block text-emerald-300">Despesa lançada com sucesso!</strong></div>
+                </div>
+            ';
+        }
+    } catch (Throwable $e) {
+        $mensagem = '
+            <div class="flex items-start gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-6 text-sm">
+                <i data-lucide="alert-triangle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
+                <div><strong class="font-semibold block text-rose-300">' . htmlspecialchars($e->getMessage()) . '</strong></div>
+            </div>
+        ';
+    }
+}
 
 /*
 |--------------------------------------------------------------------------
-| 2. CADASTRO
+| 3. BUSCAR PARA EDIÇÃO
 |--------------------------------------------------------------------------
 */
+$despesa_editar = null;
+if (isset($_GET['acao']) && $_GET['acao'] === 'editar' && isset($_GET['id'])) {
+    $id_ed = (int)$_GET['id'];
+    $stmtE = $pdo->prepare("SELECT * FROM despesas WHERE id = ? AND empresa_id = ? LIMIT 1");
+    $stmtE->execute([$id_ed, $empresa_id]);
+    $despesa_editar = $stmtE->fetch(PDO::FETCH_ASSOC);
+}
 
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST' &&
-    isset($_POST['cadastrar_despesa'])
-) {
+/*
+|--------------------------------------------------------------------------
+| 4. CONSULTA DE DESPESAS
+|--------------------------------------------------------------------------
+*/
+$categoria_filtro = trim($_GET['categoria_filtro'] ?? '');
+$paramsD = [$empresa_id];
+$sql_filtro = '';
 
-    $descricao =
-        trim($_POST['descricao'] ?? '');
+if (!empty($categoria_filtro)) {
+    $sql_filtro .= " AND categoria = ? ";
+    $paramsD[] = $categoria_filtro;
+}
 
-    $categoria =
-        trim($_POST['categoria'] ?? '');
+$stmtDesp = $pdo->prepare("SELECT * FROM despesas WHERE empresa_id = ? {$sql_filtro} ORDER BY data_vencimento DESC, id DESC");
+$stmtDesp->execute($paramsD);
+$despesas = $stmtDesp->fetchAll(PDO::FETCH_ASSOC);
 
-    $valor =
-        (float)($_POST['valor'] ?? 0);
+$totalDespesasPagas = 0.0;
+$totalDespesasPendentes = 0.0;
 
-    $data_vencimento =
-        !empty($_POST['data_vencimento'])
-            ? $_POST['data_vencimento']
-            : null;
-
-    $pago =
-        isset($_POST['pago'])
-            ? 1
-            : 0;
-
-
-    if (
-        !empty($descricao) &&
-        $valor > 0
-    ) {
-
-        $stmtInst = $pdo->prepare("
-            INSERT INTO despesas (
-                empresa_id,
-                descricao,
-                categoria,
-                valor,
-                data_vencimento,
-                pago
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-        ");
-
-
-        $stmtInst->execute([
-            $empresa_id,
-            $descricao,
-            $categoria,
-            $valor,
-            $data_vencimento,
-            $pago
-        ]);
-
-
-        $mensagem = '
-            <div class="alerta-sucesso">
-                <span>✅</span>
-                <div>
-                    <strong>Despesa cadastrada com sucesso!</strong>
-                </div>
-            </div>
-        ';
-
+foreach ($despesas as $d) {
+    if ((int)$d['pago'] === 1) {
+        $totalDespesasPagas += (float)$d['valor'];
     } else {
-
-        $mensagem = '
-            <div class="alerta-erro">
-                ⚠️ Preencha a descrição e o valor corretamente.
-            </div>
-        ';
+        $totalDespesasPendentes += (float)$d['valor'];
     }
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| 3. RESUMO FINANCEIRO
-|--------------------------------------------------------------------------
-*/
-
-$stmtResumo = $pdo->prepare("
-    SELECT
-
-        COALESCE(SUM(valor), 0) AS total_despesas,
-
-        COALESCE(
-            SUM(
-                CASE
-                    WHEN pago = TRUE
-                    THEN valor
-                    ELSE 0
-                END
-            ),
-            0
-        ) AS total_pago,
-
-        COALESCE(
-            SUM(
-                CASE
-                    WHEN pago = FALSE
-                    THEN valor
-                    ELSE 0
-                END
-            ),
-            0
-        ) AS total_pendente
-
-    FROM despesas
-
-    WHERE empresa_id = ?
-");
-
-
-$stmtResumo->execute([
-    $empresa_id
-]);
-
-
-$resumo =
-    $stmtResumo->fetch(PDO::FETCH_ASSOC);
-
-
-$total_despesas =
-    (float)($resumo['total_despesas'] ?? 0);
-
-$total_pago =
-    (float)($resumo['total_pago'] ?? 0);
-
-$total_pendente =
-    (float)($resumo['total_pendente'] ?? 0);
-
-
-/*
-|--------------------------------------------------------------------------
-| 4. HISTÓRICO
-|--------------------------------------------------------------------------
-*/
-
-$stmtDespesas = $pdo->prepare("
-    SELECT *
-    FROM despesas
-    WHERE empresa_id = ?
-    ORDER BY id DESC
-");
-
-
-$stmtDespesas->execute([
-    $empresa_id
-]);
-
-
-$despesas =
-    $stmtDespesas->fetchAll(
-        PDO::FETCH_ASSOC
-    );
-
 ?>
 
-<header class="header">
+<script src="https://unpkg.com/lucide@latest"></script>
 
+<!-- CABEÇALHO -->
+<header class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
     <div>
-
-        <h2>
-            Despesas & Custos Fixos
+        <h2 class="text-2xl font-black text-white flex items-center gap-2.5 tracking-tight m-0">
+            <div class="p-2 bg-rose-500/10 rounded-xl border border-rose-500/20">
+                <i data-lucide="trending-down" class="w-5 h-5 text-rose-400"></i>
+            </div>
+            <?= $despesa_editar ? 'Editar Despesa' : 'Despesas' ?>
         </h2>
-
-        <p
-            style="
-                color:#94a3b8;
-                font-size:14px;
-            "
-        >
-            Controle contas a pagar, aluguel,
-            marketing e custos operacionais
+        <p class="text-sm text-zinc-400 mt-2 m-0">
+            Controle custos fixos, operacionais e saídas financeiras
         </p>
-
     </div>
-
 </header>
-
 
 <?= $mensagem ?>
 
-
-<!-- ============================================================
-     RESUMO
-============================================================ -->
-
-<div class="resumo-despesas">
-
-
-    <div class="card-resumo-despesa">
-
-        <span class="resumo-label">
-            Total de Despesas
-        </span>
-
-        <strong class="resumo-valor vermelho">
-
-            R$
-            <?= number_format(
-                $total_despesas,
-                2,
-                ',',
-                '.'
-            ) ?>
-
-        </strong>
-
+<!-- CARDS DE RESUMO -->
+<div class="grid grid-cols-2 gap-3 sm:gap-4 mb-6">
+    <div class="bg-[#09090b] border border-rose-500/20 rounded-2xl p-4 sm:p-5">
+        <span class="text-[11px] font-semibold text-rose-400 uppercase tracking-wider block mb-1">Total Pago</span>
+        <strong class="text-xl sm:text-2xl font-black text-rose-400">R$ <?= number_format($totalDespesasPagas, 2, ',', '.') ?></strong>
+        <span class="text-[11px] text-zinc-500 block mt-1">Lançadas no caixa</span>
     </div>
 
-
-    <div class="card-resumo-despesa">
-
-        <span class="resumo-label">
-            Total Pago
-        </span>
-
-        <strong class="resumo-valor verde">
-
-            R$
-            <?= number_format(
-                $total_pago,
-                2,
-                ',',
-                '.'
-            ) ?>
-
-        </strong>
-
+    <div class="bg-[#09090b] border border-zinc-800 rounded-2xl p-4 sm:p-5">
+        <span class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block mb-1">A Pagar</span>
+        <strong class="text-xl sm:text-2xl font-black text-zinc-200">R$ <?= number_format($totalDespesasPendentes, 2, ',', '.') ?></strong>
+        <span class="text-[11px] text-zinc-500 block mt-1">Despesas pendentes</span>
     </div>
-
-
-    <div class="card-resumo-despesa">
-
-        <span class="resumo-label">
-            Total Pendente
-        </span>
-
-        <strong class="resumo-valor vermelho-claro">
-
-            R$
-            <?= number_format(
-                $total_pendente,
-                2,
-                ',',
-                '.'
-            ) ?>
-
-        </strong>
-
-    </div>
-
-
 </div>
 
-
-<!-- ============================================================
-     NOVA DESPESA
-============================================================ -->
-
-<div
-    class="table-container despesa-form-container"
->
-
-    <h3>
-        + Nova Despesa
-    </h3>
-
-
-    <form
-        method="POST"
-        action="index.php?page=despesas"
-    >
-
-        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-
-        <div class="linha-despesa">
-
-
-            <!-- DESCRIÇÃO -->
-
-            <div class="campo-despesa campo-descricao">
-
-                <label>
-                    Descrição *
-                </label>
-
-
-                <input
-                    type="text"
-                    name="descricao"
-                    required
-                    placeholder="Ex: Embalagens, Luz, Anúncios"
-                >
-
-            </div>
-
-
-            <!-- CATEGORIA -->
-
-            <div class="campo-despesa">
-
-                <label>
-                    Categoria
-                </label>
-
-
-                <select
-                    name="categoria"
-                >
-
-                    <option value="Operacional">
-                        Operacional
-                    </option>
-
-                    <option value="Marketing">
-                        Marketing/Anúncios
-                    </option>
-
-                    <option value="Infraestrutura">
-                        Infraestrutura/Aluguel
-                    </option>
-
-                    <option value="Impostos">
-                        Impostos/Taxas
-                    </option>
-
-                    <option value="Outros">
-                        Outros
-                    </option>
-
-                </select>
-
-            </div>
-
-
-            <!-- VALOR -->
-
-            <div class="campo-despesa">
-
-                <label>
-                    Valor (R$) *
-                </label>
-
-
-                <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="valor"
-                    required
-                    placeholder="0,00"
-                >
-
-            </div>
-
-
-            <!-- VENCIMENTO -->
-
-            <div class="campo-despesa">
-
-                <label>
-                    Vencimento (Opcional)
-                </label>
-
-
-                <input
-                    type="date"
-                    name="data_vencimento"
-                >
-
-            </div>
-
-
+<!-- FORMULÁRIO -->
+<div class="bg-[#09090b] border <?= $despesa_editar ? 'border-rose-500/40 shadow-[0_0_30px_rgba(244,63,94,0.08)]' : 'border-zinc-800/80' ?> rounded-2xl p-4 sm:p-6 mb-8 max-w-3xl overflow-hidden box-border">
+    <div class="flex items-center gap-2.5 mb-5">
+        <div class="p-1.5 bg-zinc-800/60 rounded-lg text-zinc-400">
+            <i data-lucide="<?= $despesa_editar ? 'pencil' : 'plus' ?>" class="w-4 h-4 <?= $despesa_editar ? 'text-rose-400' : '' ?>"></i>
         </div>
-
-
-        <!-- PAGO -->
-
-        <div class="campo-pago">
-
-            <input
-                type="checkbox"
-                name="pago"
-                id="pago"
-                value="1"
-                checked
-            >
-
-            <label for="pago">
-                Já foi pago?
-            </label>
-
-        </div>
-
-
-        <button
-            type="submit"
-            name="cadastrar_despesa"
-            class="btn-salvar-despesa"
-        >
-            Salvar Despesa
-        </button>
-
-
-    </form>
-
-</div>
-
-
-<!-- ============================================================
-     HISTÓRICO
-============================================================ -->
-
-<div class="table-container historico-despesas">
-
-
-    <div class="historico-despesas-topo">
-
-        <h3>
-            Histórico de Despesas
+        <h3 class="text-base font-bold text-white m-0">
+            <?= $despesa_editar ? 'Alterar Dados da Despesa' : 'Lançar Nova Despesa' ?>
         </h3>
-
-
-        <select
-            id="filtroCategoriaDespesa"
-            onchange="filtrarDespesas()"
-        >
-
-            <option value="">
-                — Todas —
-            </option>
-
-            <option value="Operacional">
-                Operacional
-            </option>
-
-            <option value="Marketing">
-                Marketing/Anúncios
-            </option>
-
-            <option value="Infraestrutura">
-                Infraestrutura/Aluguel
-            </option>
-
-            <option value="Impostos">
-                Impostos/Taxas
-            </option>
-
-            <option value="Outros">
-                Outros
-            </option>
-
-        </select>
-
     </div>
 
-
-    <!-- ========================================================
-         DESKTOP
-    ========================================================= -->
-
-    <div class="despesas-desktop">
-
-        <table>
-
-            <thead>
-
-                <tr>
-
-                    <th>
-                        Vencimento
-                    </th>
-
-                    <th>
-                        Descrição
-                    </th>
-
-                    <th>
-                        Categoria
-                    </th>
-
-                    <th>
-                        Valor
-                    </th>
-
-                    <th>
-                        Status
-                    </th>
-
-                    <th
-                        style="text-align:center;"
-                    >
-                        Ações
-                    </th>
-
-                </tr>
-
-            </thead>
-
-
-            <tbody>
-
-
-                <?php if (!empty($despesas)): ?>
-
-
-                    <?php foreach ($despesas as $d): ?>
-
-
-                        <tr
-                            class="linha-despesa-historico"
-                            data-categoria="<?= htmlspecialchars(
-                                $d['categoria'] ?? ''
-                            ) ?>"
-                        >
-
-
-                            <!-- VENCIMENTO -->
-
-                            <td>
-
-                                <?php if (
-                                    !empty(
-                                        $d['data_vencimento']
-                                    )
-                                ): ?>
-
-                                    <?= date(
-                                        'd/m/Y',
-                                        strtotime(
-                                            $d['data_vencimento']
-                                        )
-                                    ) ?>
-
-                                <?php else: ?>
-
-                                    <span
-                                        style="color:#71717a;"
-                                    >
-                                        —
-                                    </span>
-
-                                <?php endif; ?>
-
-                            </td>
-
-
-                            <!-- DESCRIÇÃO -->
-
-                            <td>
-
-                                <strong>
-
-                                    <?= htmlspecialchars(
-                                        $d['descricao']
-                                    ) ?>
-
-                                </strong>
-
-                            </td>
-
-
-                            <!-- CATEGORIA -->
-
-                            <td>
-
-                                <?= htmlspecialchars(
-                                    $d['categoria']
-                                ) ?>
-
-                            </td>
-
-
-                            <!-- VALOR -->
-
-                            <td
-                                style="color:#ef4444;"
-                            >
-
-                                <strong>
-
-                                    R$
-                                    <?= number_format(
-                                        (float)$d['valor'],
-                                        2,
-                                        ',',
-                                        '.'
-                                    ) ?>
-
-                                </strong>
-
-                            </td>
-
-
-                            <!-- STATUS -->
-
-                            <td>
-
-                                <?php if (
-                                    $d['pago']
-                                ): ?>
-
-                                    <span class="status-pago">
-                                        PAGO
-                                    </span>
-
-                                <?php else: ?>
-
-                                    <span class="status-pendente">
-                                        PENDENTE
-                                    </span>
-
-                                <?php endif; ?>
-
-                            </td>
-
-
-                            <!-- AÇÕES -->
-
-                            <td
-                                class="acoes-despesa"
-                            >
-
-
-                                <?php if (
-                                    !$d['pago']
-                                ): ?>
-
-                                    <form method="POST" action="index.php?page=despesas" style="display:inline;">
-                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-                                        <input type="hidden" name="acao" value="pagar">
-                                        <input type="hidden" name="id" value="<?= (int)$d['id'] ?>">
-                                        <button
-                                            type="submit"
-                                            title="Marcar como Pago"
-                                            style="background:none;border:none;cursor:pointer;font-size:inherit;padding:0;"
-                                        >
-                                            ✅
-                                        </button>
-                                    </form>
-
-                                <?php endif; ?>
-
-
-                                <button
-                                    type="button"
-                                    title="Excluir"
-                                    onclick="abrirModalExcluirDespesa(<?= (int)$d['id'] ?>)"
-                                >
-                                    🗑️
-                                </button>
-
-
-                            </td>
-
-
-                        </tr>
-
-
-                    <?php endforeach; ?>
-
-
-                <?php else: ?>
-
-
-                    <tr>
-
-                        <td
-                            colspan="6"
-                            class="sem-despesas"
-                        >
-
-                            Nenhuma despesa encontrada.
-
-                        </td>
-
-                    </tr>
-
-
-                <?php endif; ?>
-
-
-            </tbody>
-
-        </table>
-
-    </div>
-
-
-    <!-- ========================================================
-         MOBILE
-    ========================================================= -->
-
-    <div class="despesas-mobile">
-
-
-        <?php if (!empty($despesas)): ?>
-
-
-            <?php foreach ($despesas as $d): ?>
-
-
-                <div
-                    class="despesa-mobile-card"
-                    data-categoria="<?= htmlspecialchars(
-                        $d['categoria'] ?? ''
-                    ) ?>"
-                >
-
-
-                    <div class="despesa-mobile-principal">
-
-
-                        <div class="despesa-mobile-info">
-
-
-                            <strong>
-
-                                <?= htmlspecialchars(
-                                    $d['descricao']
-                                ) ?>
-
-                            </strong>
-
-
-                            <span>
-
-                                <?= htmlspecialchars(
-                                    $d['categoria']
-                                ) ?>
-
-                                ·
-
-                                <?php if (
-                                    !empty(
-                                        $d['data_vencimento']
-                                    )
-                                ): ?>
-
-                                    <?= date(
-                                        'd/m/Y',
-                                        strtotime(
-                                            $d['data_vencimento']
-                                        )
-                                    ) ?>
-
-                                <?php else: ?>
-
-                                    Sem vencimento
-
-                                <?php endif; ?>
-
-                            </span>
-
-
-                        </div>
-
-
-                        <div class="despesa-mobile-direita">
-
-
-                            <strong
-                                class="despesa-mobile-valor"
-                            >
-
-                                R$
-                                <?= number_format(
-                                    (float)$d['valor'],
-                                    2,
-                                    ',',
-                                    '.'
-                                ) ?>
-
-                            </strong>
-
-
-                            <div
-                                class="acoes-despesa-mobile"
-                            >
-
-
-                                <?php if (
-                                    !$d['pago']
-                                ): ?>
-
-                                    <form method="POST" action="index.php?page=despesas" style="display:inline;">
-                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-                                        <input type="hidden" name="acao" value="pagar">
-                                        <input type="hidden" name="id" value="<?= (int)$d['id'] ?>">
-                                        <button
-                                            type="submit"
-                                            title="Marcar como Pago"
-                                            style="background:none;border:none;cursor:pointer;font-size:inherit;padding:0;"
-                                        >
-                                            ✅
-                                        </button>
-                                    </form>
-
-                                <?php endif; ?>
-
-
-                                <button
-                                    type="button"
-                                    title="Excluir"
-                                    onclick="abrirModalExcluirDespesa(<?= (int)$d['id'] ?>)"
-                                >
-                                    🗑️
-                                </button>
-
-
-                            </div>
-
-
-                            <button
-                                type="button"
-                                class="btn-detalhes-despesa"
-                                onclick="toggleDetalhesDespesa(<?= (int)$d['id'] ?>)"
-                                aria-label="Mostrar detalhes"
-                            >
-
-                                <span>
-                                    ›
-                                </span>
-
-                            </button>
-
-
-                        </div>
-
-
-                    </div>
-
-
-                    <!-- DETALHES -->
-
-                    <div
-                        class="despesa-mobile-detalhes"
-                        id="detalhes-despesa-<?= (int)$d['id'] ?>"
-                    >
-
-
-                        <div class="detalhe-despesa">
-
-
-                            <span>
-                                Categoria
-                            </span>
-
-
-                            <strong>
-
-                                <?= htmlspecialchars(
-                                    $d['categoria']
-                                ) ?>
-
-                            </strong>
-
-
-                        </div>
-
-
-                        <div class="detalhe-despesa">
-
-
-                            <span>
-                                Vencimento
-                            </span>
-
-
-                            <strong>
-
-                                <?php if (
-                                    !empty(
-                                        $d['data_vencimento']
-                                    )
-                                ): ?>
-
-                                    <?= date(
-                                        'd/m/Y',
-                                        strtotime(
-                                            $d['data_vencimento']
-                                        )
-                                    ) ?>
-
-                                <?php else: ?>
-
-                                    —
-
-                                <?php endif; ?>
-
-
-                            </strong>
-
-
-                        </div>
-
-
-                        <div class="detalhe-despesa">
-
-
-                            <span>
-                                Status
-                            </span>
-
-
-                            <strong>
-
-                                <?php if (
-                                    $d['pago']
-                                ): ?>
-
-                                    <span class="status-pago">
-                                        PAGO
-                                    </span>
-
-                                <?php else: ?>
-
-                                    <span class="status-pendente">
-                                        PENDENTE
-                                    </span>
-
-                                <?php endif; ?>
-
-
-                            </strong>
-
-
-                        </div>
-
-
-                        <div
-                            class="detalhe-despesa destaque-despesa"
-                        >
-
-
-                            <span>
-                                Valor
-                            </span>
-
-
-                            <strong>
-
-                                R$
-                                <?= number_format(
-                                    (float)$d['valor'],
-                                    2,
-                                    ',',
-                                    '.'
-                                ) ?>
-
-                            </strong>
-
-
-                        </div>
-
-
-                    </div>
-
-
-                </div>
-
-
-            <?php endforeach; ?>
-
-
-        <?php else: ?>
-
-
-            <div class="sem-despesas-mobile">
-
-                Nenhuma despesa encontrada.
-
-            </div>
-
-
+    <form method="POST" action="index.php?page=despesas" class="space-y-4">
+        <?php if (function_exists('csrf_token')): ?>
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+        <?php endif; ?>
+        <?php if ($despesa_editar): ?>
+            <input type="hidden" name="id_despesa" value="<?= (int)$despesa_editar['id'] ?>">
         <?php endif; ?>
 
-
-    </div>
-
-
-</div>
-
-
-<!-- ============================================================
-     MODAL EXCLUSÃO
-============================================================ -->
-
-<form
-    id="form-excluir-despesa"
-    method="POST"
-    action="index.php?page=despesas"
-    style="display:none;"
->
-    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-    <input type="hidden" name="acao" value="deletar">
-    <input type="hidden" name="id" id="input-id-despesa-excluir" value="">
-</form>
-
-<div
-    id="modal-excluir-despesa"
-    class="modal-confirmacao-despesa"
->
-
-
-    <div class="modal-despesa-box">
-
-
-        <div class="modal-despesa-icone">
-            ⚠️
+        <div>
+            <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Descrição *</label>
+            <input type="text" name="descricao" required placeholder="Ex: Embalagens, Luz, Anúncios, Aluguel"
+                   value="<?= htmlspecialchars($despesa_editar['descricao'] ?? '') ?>"
+                   class="w-full box-border bg-[#000000] border border-zinc-800 text-zinc-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-rose-500 transition-colors">
         </div>
 
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="min-w-0">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Categoria</label>
+                <div class="relative">
+                    <select name="categoria" class="w-full box-border bg-[#000000] border border-zinc-800 text-zinc-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-rose-500 transition-colors cursor-pointer appearance-none">
+                        <option value="Operacional" <?= ($despesa_editar && $despesa_editar['categoria'] === 'Operacional') ? 'selected' : '' ?>>Operacional</option>
+                        <option value="Marketing" <?= ($despesa_editar && $despesa_editar['categoria'] === 'Marketing') ? 'selected' : '' ?>>Marketing / Anúncios</option>
+                        <option value="Fixa" <?= ($despesa_editar && $despesa_editar['categoria'] === 'Fixa') ? 'selected' : '' ?>>Despesa Fixa</option>
+                        <option value="Impostos" <?= ($despesa_editar && $despesa_editar['categoria'] === 'Impostos') ? 'selected' : '' ?>>Impostos / Taxas</option>
+                        <option value="Outros" <?= ($despesa_editar && $despesa_editar['categoria'] === 'Outros') ? 'selected' : '' ?>>Outros</option>
+                    </select>
+                    <i data-lucide="chevron-down" class="w-4 h-4 text-zinc-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                </div>
+            </div>
 
-        <h3>
-            Excluir despesa?
-        </h3>
+            <div class="min-w-0">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Valor (R$) *</label>
+                <input type="text" name="valor" required placeholder="0,00"
+                       value="<?= $despesa_editar ? number_format((float)$despesa_editar['valor'], 2, ',', '.') : '' ?>"
+                       class="w-full box-border bg-[#000000] border border-zinc-800 text-zinc-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-rose-500 transition-colors">
+            </div>
 
-
-        <p>
-            Tem certeza que deseja excluir esta despesa?
-        </p>
-
-
-        <p class="modal-despesa-aviso">
-            Esse registro será removido do sistema.
-        </p>
-
-
-        <div class="modal-despesa-botoes">
-
-
-            <button
-                type="button"
-                class="btn-despesa-voltar"
-                onclick="fecharModalExcluirDespesa()"
-            >
-                Não, voltar
-            </button>
-
-
-            <button
-                type="button"
-                class="btn-despesa-excluir"
-                onclick="confirmarExclusaoDespesa()"
-            >
-                Sim, excluir
-            </button>
-
-
+            <!-- CONTAINER DE DATA AJUSTADO PARA EVITAR OVERFLOW NO IOS -->
+            <div class="min-w-0">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Data Vencimento</label>
+                <input type="date" name="data_vencimento" 
+                       value="<?= htmlspecialchars($despesa_editar['data_vencimento'] ?? date('Y-m-d')) ?>"
+                       class="w-full max-w-full box-border appearance-none min-w-0 bg-[#000000] border border-zinc-800 text-zinc-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-rose-500 transition-colors">
+            </div>
         </div>
 
+        <div class="bg-[#000000] border border-zinc-800/80 p-3.5 rounded-xl flex items-center gap-3">
+            <input type="checkbox" name="pago" id="despesa_pago" class="w-4 h-4 accent-rose-500 cursor-pointer rounded" 
+                   <?= ($despesa_editar ? ((int)$despesa_editar['pago'] === 1) : true) ? 'checked' : '' ?>>
+            <label for="despesa_pago" class="text-xs text-zinc-300 cursor-pointer font-medium">
+                Esta despesa já foi paga (debitar do caixa)
+            </label>
+        </div>
 
-    </div>
+        <div class="flex items-center gap-3 pt-2">
+            <button type="submit" name="salvar_despesa"
+                    class="flex-1 inline-flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white text-sm font-bold rounded-xl px-6 py-3 transition-all shadow-[0_0_20px_rgba(244,63,94,0.15)] cursor-pointer">
+                <i data-lucide="check" class="w-4 h-4"></i>
+                <?= $despesa_editar ? 'Atualizar Despesa' : 'Salvar Despesa' ?>
+            </button>
 
-
+            <?php if ($despesa_editar): ?>
+                <a href="index.php?page=despesas" class="inline-flex items-center justify-center bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-sm font-semibold rounded-xl px-5 py-3 transition-colors no-underline">
+                    Cancelar
+                </a>
+            <?php endif; ?>
+        </div>
+    </form>
 </div>
 
-
-<style>
-
-/*
-|--------------------------------------------------------------------------
-| ALERTAS
-|--------------------------------------------------------------------------
-*/
-
-.alerta-sucesso {
-
-    display:flex;
-
-    align-items:flex-start;
-
-    gap:12px;
-
-    background:
-        rgba(16,185,129,0.10);
-
-    border:
-        1px solid #10b981;
-
-    color:
-        #34d399;
-
-    padding:
-        13px 16px;
-
-    border-radius:
-        8px;
-
-    margin-bottom:
-        20px;
-
-    font-size:
-        14px;
-}
-
-
-.alerta-erro {
-
-    background:
-        rgba(239,68,68,0.10);
-
-    border:
-        1px solid #ef4444;
-
-    color:
-        #f87171;
-
-    padding:
-        13px 16px;
-
-    border-radius:
-        8px;
-
-    margin-bottom:
-        20px;
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| RESUMO
-|--------------------------------------------------------------------------
-*/
-
-.resumo-despesas {
-
-    display:grid;
-
-    grid-template-columns:
-        repeat(3, 1fr);
-
-    gap:15px;
-
-    margin-bottom:30px;
-
-}
-
-
-.card-resumo-despesa {
-
-    background:
-        #09090b;
-
-    border:
-        1px solid #27272a;
-
-    border-radius:
-        10px;
-
-    padding:
-        20px;
-
-    min-height:
-        90px;
-
-    display:flex;
-
-    flex-direction:column;
-
-    justify-content:center;
-
-}
-
-
-.resumo-label {
-
-    color:
-        #94a3b8;
-
-    font-size:
-        14px;
-
-    margin-bottom:
-        8px;
-
-}
-
-
-.resumo-valor {
-
-    font-size:
-        25px;
-
-    font-weight:
-        700;
-
-}
-
-
-.resumo-valor.vermelho {
-
-    color:
-        #f87171;
-
-}
-
-
-.resumo-valor.verde {
-
-    color:
-        #34d399;
-
-}
-
-
-.resumo-valor.vermelho-claro {
-
-    color:
-        #fb7185;
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| FORMULÁRIO
-|--------------------------------------------------------------------------
-*/
-
-.despesa-form-container {
-
-    max-width:
-        700px;
-
-    margin-bottom:
-        30px;
-
-}
-
-
-.despesa-form-container h3 {
-
-    margin-bottom:
-        18px;
-
-}
-
-
-.linha-despesa {
-
-    display:flex;
-
-    gap:15px;
-
-    flex-wrap:wrap;
-
-    align-items:flex-end;
-
-}
-
-
-.campo-despesa {
-
-    flex:1;
-
-    min-width:130px;
-
-}
-
-
-.campo-descricao {
-
-    flex:2;
-
-    min-width:200px;
-
-}
-
-
-.campo-despesa label {
-
-    display:block;
-
-    font-size:13px;
-
-    color:#94a3b8;
-
-    margin-bottom:5px;
-
-}
-
-
-.campo-despesa input,
-.campo-despesa select {
-
-    width:100%;
-
-    padding:10px;
-
-    box-sizing:border-box;
-
-}
-
-
-.campo-pago {
-
-    display:flex;
-
-    align-items:center;
-
-    gap:8px;
-
-    margin-top:15px;
-
-    margin-bottom:15px;
-
-}
-
-
-.campo-pago input {
-
-    width:16px;
-
-    height:16px;
-
-}
-
-
-.campo-pago label {
-
-    color:#e2e8f0;
-
-    font-size:13px;
-
-    cursor:pointer;
-
-}
-
-
-.btn-salvar-despesa {
-
-    width:100%;
-
-    padding:11px 20px;
-
-    cursor:pointer;
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| HISTÓRICO
-|--------------------------------------------------------------------------
-*/
-
-.historico-despesas-topo {
-
-    display:flex;
-
-    justify-content:space-between;
-
-    align-items:center;
-
-    gap:10px;
-
-    margin-bottom:15px;
-
-}
-
-
-.historico-despesas-topo h3 {
-
-    margin:0;
-
-}
-
-
-.historico-despesas-topo select {
-
-    padding:8px 12px;
-
-    font-size:13px;
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| DESKTOP
-|--------------------------------------------------------------------------
-*/
-
-.despesas-mobile {
-
-    display:none;
-
-}
-
-
-.acoes-despesa {
-
-    text-align:center;
-
-    white-space:nowrap;
-
-}
-
-
-.acoes-despesa a,
-.acoes-despesa button {
-
-    background:none;
-
-    border:none;
-
-    cursor:pointer;
-
-    padding:0;
-
-    margin:0 4px;
-
-    text-decoration:none;
-
-    font-size:16px;
-
-}
-
-
-.status-pago {
-
-    background:
-        #064e3b;
-
-    color:
-        #34d399;
-
-    padding:
-        4px 8px;
-
-    border-radius:
-        4px;
-
-    font-size:
-        12px;
-
-    font-weight:
-        bold;
-
-}
-
-
-.status-pendente {
-
-    background:
-        #7f1d1d;
-
-    color:
-        #fca5a5;
-
-    padding:
-        4px 8px;
-
-    border-radius:
-        4px;
-
-    font-size:
-        12px;
-
-    font-weight:
-        bold;
-
-}
-
-
-.sem-despesas {
-
-    color:
-        #94a3b8;
-
-    text-align:
-        center;
-
-    padding:
-        25px !important;
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| MOBILE
-|--------------------------------------------------------------------------
-*/
-
-@media (max-width:700px) {
-
-
-    /*
-    | RESUMO
-    */
-
-    .resumo-despesas {
-
-        grid-template-columns:
-            1fr;
-
-        gap:10px;
-
-        margin-bottom:25px;
-
-    }
-
-
-    .card-resumo-despesa {
-
-        min-height:
-            auto;
-
-        padding:
-            17px;
-
-    }
-
-
-    .resumo-label {
-
-        font-size:
-            13px;
-
-    }
-
-
-    .resumo-valor {
-
-        font-size:
-            22px;
-
-    }
-
-
-    /*
-    | FORMULÁRIO
-    */
-
-    .despesa-form-container {
-
-        max-width:
-            none;
-
-    }
-
-
-    .linha-despesa {
-
-        flex-direction:
-            column;
-
-        gap:0;
-
-        align-items:stretch;
-
-    }
-
-
-    .campo-despesa,
-    .campo-descricao {
-
-        width:100%;
-
-        min-width:0;
-
-    }
-
-
-    /*
-    | HISTÓRICO
-    */
-
-    .despesas-desktop {
-
-        display:none;
-
-    }
-
-
-    .despesas-mobile {
-
-        display:block;
-
-    }
-
-
-    .historico-despesas-topo {
-
-        align-items:stretch;
-
-        flex-direction:column;
-
-    }
-
-
-    .historico-despesas-topo select {
-
-        width:100%;
-
-        box-sizing:border-box;
-
-    }
-
-
-    /*
-    | CARD
-    */
-
-    .despesa-mobile-card {
-
-        background:
-            #09090b;
-
-        border:
-            1px solid #27272a;
-
-        border-radius:
-            10px;
-
-        margin-bottom:
-            10px;
-
-        overflow:hidden;
-
-    }
-
-
-    .despesa-mobile-principal {
-
-        display:flex;
-
-        align-items:center;
-
-        justify-content:space-between;
-
-        gap:10px;
-
-        padding:
-            13px 12px;
-
-    }
-
-
-    .despesa-mobile-info {
-
-        min-width:0;
-
-        display:flex;
-
-        flex-direction:column;
-
-        gap:4px;
-
-    }
-
-
-    .despesa-mobile-info strong {
-
-        color:
-            #f4f4f5;
-
-        font-size:
-            14px;
-
-        overflow:hidden;
-
-        text-overflow:ellipsis;
-
-        white-space:nowrap;
-
-    }
-
-
-    .despesa-mobile-info span {
-
-        color:
-            #71717a;
-
-        font-size:
-            12px;
-
-    }
-
-
-    .despesa-mobile-direita {
-
-        display:flex;
-
-        align-items:center;
-
-        gap:8px;
-
-        flex-shrink:0;
-
-    }
-
-
-    .despesa-mobile-valor {
-
-        color:
-            #f87171;
-
-        font-size:
-            13px;
-
-        white-space:nowrap;
-
-    }
-
-
-    .acoes-despesa-mobile {
-
-        display:flex;
-
-        align-items:center;
-
-        gap:7px;
-
-    }
-
-
-    .acoes-despesa-mobile a,
-    .acoes-despesa-mobile button {
-
-        background:none;
-
-        border:none;
-
-        padding:0;
-
-        cursor:pointer;
-
-        text-decoration:none;
-
-        font-size:15px;
-
-    }
-
-
-    /*
-    | BOTÃO DETALHES
-    */
-
-    .btn-detalhes-despesa {
-
-        width:27px;
-
-        height:27px;
-
-        display:flex;
-
-        align-items:center;
-
-        justify-content:center;
-
-        background:
-            #18181b;
-
-        border:
-            1px solid #27272a;
-
-        color:
-            #a1a1aa;
-
-        border-radius:
-            6px;
-
-        cursor:pointer;
-
-    }
-
-
-    .btn-detalhes-despesa span {
-
-        font-size:
-            20px;
-
-        line-height:
-            1;
-
-        transform:
-            rotate(90deg);
-
-        transition:
-            transform .2s ease;
-
-    }
-
-
-    .despesa-mobile-card.aberta
-    .btn-detalhes-despesa span {
-
-        transform:
-            rotate(-90deg);
-
-    }
-
-
-    /*
-    | DETALHES
-    */
-
-    .despesa-mobile-detalhes {
-
-        display:none;
-
-        padding:
-            8px 12px 12px;
-
-        border-top:
-            1px solid #18181b;
-
-    }
-
-
-    .despesa-mobile-card.aberta
-    .despesa-mobile-detalhes {
-
-        display:block;
-
-    }
-
-
-    .detalhe-despesa {
-
-        display:flex;
-
-        align-items:center;
-
-        justify-content:space-between;
-
-        gap:10px;
-
-        padding:
-            7px 0;
-
-    }
-
-
-    /*
-    | SEM LINHAS/TRAÇOS
-    */
-
-    .detalhe-despesa {
-
-        border-bottom:none;
-
-    }
-
-
-    .detalhe-despesa span {
-
-        color:
-            #71717a;
-
-        font-size:
-            12px;
-
-    }
-
-
-    .detalhe-despesa strong {
-
-        color:
-            #d4d4d8;
-
-        font-size:
-            12px;
-
-        text-align:right;
-
-    }
-
-
-    .destaque-despesa strong {
-
-        color:
-            #f87171;
-
-    }
-
-
-    .sem-despesas-mobile {
-
-        text-align:center;
-
-        color:#94a3b8;
-
-        padding:
-            30px 15px;
-
-    }
-
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| MODAL
-|--------------------------------------------------------------------------
-*/
-
-.modal-confirmacao-despesa {
-
-    display:none;
-
-    position:fixed;
-
-    inset:0;
-
-    background:
-        rgba(0,0,0,.75);
-
-    z-index:9999;
-
-    align-items:center;
-
-    justify-content:center;
-
-    padding:20px;
-
-}
-
-
-.modal-confirmacao-despesa.ativo {
-
-    display:flex;
-
-}
-
-
-.modal-despesa-box {
-
-    width:100%;
-
-    max-width:430px;
-
-    background:
-        #18181b;
-
-    border:
-        1px solid #27272a;
-
-    border-radius:
-        14px;
-
-    padding:30px;
-
-    text-align:center;
-
-    box-shadow:
-        0 20px 50px rgba(0,0,0,.5);
-
-}
-
-
-.modal-despesa-icone {
-
-    font-size:38px;
-
-    margin-bottom:12px;
-
-}
-
-
-.modal-despesa-box h3 {
-
-    margin:0 0 10px;
-
-    color:#f8fafc;
-
-    font-size:20px;
-
-}
-
-
-.modal-despesa-box p {
-
-    margin:8px 0;
-
-    color:#cbd5e1;
-
-    font-size:14px;
-
-}
-
-
-.modal-despesa-aviso {
-
-    color:#f59e0b !important;
-
-    font-size:13px !important;
-
-    margin-top:14px !important;
-
-}
-
-
-.modal-despesa-botoes {
-
-    display:flex;
-
-    gap:10px;
-
-    margin-top:25px;
-
-}
-
-
-.modal-despesa-botoes button {
-
-    flex:1;
-
-    padding:11px 15px;
-
-    border-radius:7px;
-
-    cursor:pointer;
-
-    font-size:14px;
-
-    font-weight:600;
-
-}
-
-
-.btn-despesa-voltar {
-
-    background:#27272a;
-
-    color:#cbd5e1;
-
-    border:1px solid #3f3f46;
-
-}
-
-
-.btn-despesa-excluir {
-
-    background:#dc2626;
-
-    color:white;
-
-    border:1px solid #dc2626;
-
-}
-
-
-@media (max-width:700px) {
-
-    .modal-despesa-box {
-
-        padding:
-            24px 20px;
-
-    }
-
-
-    .modal-despesa-botoes {
-
-        flex-direction:
-            column;
-
-    }
-
-}
-
-</style>
-
+<!-- LISTAGEM -->
+<div class="bg-[#09090b] border border-zinc-800/80 rounded-2xl p-4 sm:p-6 overflow-hidden">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-5 border-b border-zinc-900">
+        <div class="flex items-center gap-2.5">
+            <div class="p-1.5 bg-rose-500/10 rounded-xl border border-rose-500/20">
+                <i data-lucide="history" class="w-4.5 h-4.5 text-rose-400"></i>
+            </div>
+            <h3 class="text-base font-bold text-white m-0">Histórico de Despesas</h3>
+            <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700/50">
+                <?= count($despesas) ?>
+            </span>
+        </div>
+
+        <form method="GET" action="index.php" class="m-0">
+            <input type="hidden" name="page" value="despesas">
+            <select name="categoria_filtro" onchange="this.form.submit()" 
+                    class="w-full sm:w-auto bg-[#000000] border border-zinc-800 text-zinc-200 text-xs rounded-xl px-3 py-2 outline-none focus:border-rose-500">
+                <option value="">Todas as Categorias</option>
+                <option value="Operacional" <?= $categoria_filtro === 'Operacional' ? 'selected' : '' ?>>Operacional</option>
+                <option value="Marketing" <?= $categoria_filtro === 'Marketing' ? 'selected' : '' ?>>Marketing</option>
+                <option value="Fixa" <?= $categoria_filtro === 'Fixa' ? 'selected' : '' ?>>Fixa</option>
+                <option value="Impostos" <?= $categoria_filtro === 'Impostos' ? 'selected' : '' ?>>Impostos</option>
+                <option value="Outros" <?= $categoria_filtro === 'Outros' ? 'selected' : '' ?>>Outros</option>
+            </select>
+        </form>
+    </div>
+
+    <?php if (count($despesas) > 0): ?>
+        <div class="space-y-2.5">
+            <?php foreach ($despesas as $d): 
+                $valD = (float)$d['valor'];
+                $isPago = (int)$d['pago'] === 1;
+            ?>
+                <div class="bg-[#000000] border border-zinc-800/80 hover:border-zinc-700 rounded-xl p-3.5 flex items-center justify-between gap-3 transition">
+                    <div class="flex items-center gap-3 min-w-0 flex-1">
+                        <div class="p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-rose-400 shrink-0">
+                            <i data-lucide="receipt" class="w-4 h-4"></i>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <strong class="text-white text-sm font-semibold truncate block"><?= htmlspecialchars($d['descricao']) ?></strong>
+                            <div class="flex items-center gap-2 mt-0.5 text-xs text-zinc-500">
+                                <span><?= htmlspecialchars($d['categoria']) ?></span>
+                                <span>•</span>
+                                <span><?= date('d/m/Y', strtotime($d['data_vencimento'])) ?></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-3 shrink-0">
+                        <div class="text-right">
+                            <strong class="text-sm font-bold text-rose-400 block whitespace-nowrap">
+                                R$ <?= number_format($valD, 2, ',', '.') ?>
+                            </strong>
+                            <span class="text-[10px] font-semibold <?= $isPago ? 'text-emerald-400' : 'text-amber-400' ?> block">
+                                <?= $isPago ? 'Pago' : 'Pendente' ?>
+                            </span>
+                        </div>
+
+                        <div class="flex items-center gap-1">
+                            <a href="index.php?page=despesas&acao=editar&id=<?= (int)$d['id'] ?>" 
+                               class="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition" title="Editar">
+                                <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                            </a>
+                            <form method="POST" action="index.php?page=despesas" onsubmit="return confirm('Excluir esta despesa?');" class="m-0">
+                                <?php if (function_exists('csrf_token')): ?>
+                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                                <?php endif; ?>
+                                <input type="hidden" name="id_despesa" value="<?= (int)$d['id'] ?>">
+                                <button type="submit" name="excluir_despesa" class="p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition cursor-pointer bg-transparent border-none">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php else: ?>
+        <div class="text-zinc-500 text-center py-8 text-sm">
+            Nenhuma despesa cadastrada.
+        </div>
+    <?php endif; ?>
+</div>
 
 <script>
-
-/*
-|--------------------------------------------------------------------------
-| FILTRO
-|--------------------------------------------------------------------------
-*/
-
-function filtrarDespesas() {
-
-    const filtro =
-        document.getElementById(
-            'filtroCategoriaDespesa'
-        ).value;
-
-
-    const desktop =
-        document.querySelectorAll(
-            '.linha-despesa-historico'
-        );
-
-
-    const mobile =
-        document.querySelectorAll(
-            '.despesa-mobile-card'
-        );
-
-
-    desktop.forEach(function(linha) {
-
-        const categoria =
-            linha.getAttribute(
-                'data-categoria'
-            );
-
-
-        if (
-            !filtro ||
-            categoria === filtro
-        ) {
-
-            linha.style.display = '';
-
-        } else {
-
-            linha.style.display = 'none';
-
-        }
-
-    });
-
-
-    mobile.forEach(function(card) {
-
-        const categoria =
-            card.getAttribute(
-                'data-categoria'
-            );
-
-
-        if (
-            !filtro ||
-            categoria === filtro
-        ) {
-
-            card.style.display = '';
-
-        } else {
-
-            card.style.display = 'none';
-
-        }
-
-    });
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| DETALHES MOBILE
-|--------------------------------------------------------------------------
-*/
-
-function toggleDetalhesDespesa(id) {
-
-    const card =
-        document.querySelector(
-            '.despesa-mobile-card[data-categoria]'
-        );
-
-
-    const cards =
-        document.querySelectorAll(
-            '.despesa-mobile-card'
-        );
-
-
-    cards.forEach(function(item) {
-
-        const botao =
-            item.querySelector(
-                '.btn-detalhes-despesa'
-            );
-
-
-        if (
-            botao &&
-            botao.getAttribute(
-                'onclick'
-            ).includes(
-                '(' + id + ')'
-            )
-        ) {
-
-            item.classList.toggle(
-                'aberta'
-            );
-
-        }
-
-    });
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| MODAL EXCLUSÃO
-|--------------------------------------------------------------------------
-*/
-
-let despesaParaExcluir = null;
-
-
-function abrirModalExcluirDespesa(id) {
-
-    despesaParaExcluir = id;
-
-
-    const modal =
-        document.getElementById(
-            'modal-excluir-despesa'
-        );
-
-
-    if (modal) {
-
-        modal.classList.add(
-            'ativo'
-        );
-
+document.addEventListener("DOMContentLoaded", function () {
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
     }
-
-}
-
-
-function fecharModalExcluirDespesa() {
-
-    despesaParaExcluir = null;
-
-
-    const modal =
-        document.getElementById(
-            'modal-excluir-despesa'
-        );
-
-
-    if (modal) {
-
-        modal.classList.remove(
-            'ativo'
-        );
-
-    }
-
-}
-
-
-function confirmarExclusaoDespesa() {
-
-    if (!despesaParaExcluir) {
-        return;
-    }
-
-    document.getElementById('input-id-despesa-excluir').value = despesaParaExcluir;
-    document.getElementById('form-excluir-despesa').submit();
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| FECHAR MODAL CLICANDO FORA
-|--------------------------------------------------------------------------
-*/
-
-const modalDespesa =
-    document.getElementById(
-        'modal-excluir-despesa'
-    );
-
-
-if (modalDespesa) {
-
-    modalDespesa.addEventListener(
-        'click',
-        function(event) {
-
-            if (
-                event.target === this
-            ) {
-
-                fecharModalExcluirDespesa();
-
-            }
-
-        }
-    );
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| ESC
-|--------------------------------------------------------------------------
-*/
-
-document.addEventListener(
-    'keydown',
-    function(event) {
-
-        if (
-            event.key === 'Escape' &&
-            despesaParaExcluir
-        ) {
-
-            fecharModalExcluirDespesa();
-
-        }
-
-    }
-);
-
+});
 </script>

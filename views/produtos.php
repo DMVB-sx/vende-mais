@@ -1,1704 +1,486 @@
 <?php
-
 $mensagem = '';
 $empresa_id = $_SESSION['empresa_id'] ?? 0;
 
+/*
+|--------------------------------------------------------------------------
+| FUNÇÃO AUXILIAR: TRATAMENTO DE VALORES MONETÁRIOS
+|--------------------------------------------------------------------------
+*/
+function converterMoedaParaFloat($valor) {
+    if (empty($valor)) return 0.0;
+    $v = trim((string)$valor);
+    if (strpos($v, ',') !== false) {
+        $v = str_replace('.', '', $v);
+        $v = str_replace(',', '.', $v);
+    }
+    return (float)$v;
+}
 
 /*
 |--------------------------------------------------------------------------
-| 1. EXCLUIR / ARQUIVAR PRODUTO
+| 1. EXCLUIR / INATIVAR PRODUTO
 |--------------------------------------------------------------------------
 */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['excluir_produto'])) {
+    try {
+        if (function_exists('validar_csrf')) validar_csrf();
+        $id_del = (int)($_POST['id_produto'] ?? 0);
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['deletar_produto'])) {
-
-    validar_csrf();
-
-    $id_deletar = (int)($_POST['id_produto'] ?? 0);
-
-    if ($id_deletar <= 0) {
-
-        $mensagem = '
-            <p style="color:#ef4444;margin-bottom:20px;">
-                ⚠️ Produto inválido.
-            </p>
-        ';
-
-    } else {
-
-        try {
-
-            $stmtProduto = $pdo->prepare("
-                SELECT id, nome
-                FROM produtos
-                WHERE id = ?
-                AND empresa_id = ?
-                LIMIT 1
-            ");
-
-            $stmtProduto->execute([
-                $id_deletar,
-                $empresa_id
-            ]);
-
-            $produto = $stmtProduto->fetch();
-
-            if (!$produto) {
-
-                $mensagem = '
-                    <p style="color:#ef4444;margin-bottom:20px;">
-                        ⚠️ Produto não encontrado.
-                    </p>
-                ';
-
-            } else {
-
-                /*
-                 * Verifica se existem vendas
-                 */
-
-                $stmtCheckVendas = $pdo->prepare("
-                    SELECT COUNT(*) AS total
-                    FROM vendas
-                    WHERE produto_id = ?
-                    AND empresa_id = ?
-                ");
-
-                $stmtCheckVendas->execute([
-                    $id_deletar,
-                    $empresa_id
-                ]);
-
-                $temVendas = ((int)$stmtCheckVendas->fetch()['total']) > 0;
-
-
-                /*
-                 * Verifica se existem compras
-                 */
-
-                $stmtCheckCompras = $pdo->prepare("
-                    SELECT COUNT(*) AS total
-                    FROM compras
-                    WHERE produto_id = ?
-                    AND empresa_id = ?
-                ");
-
-                $stmtCheckCompras->execute([
-                    $id_deletar,
-                    $empresa_id
-                ]);
-
-                $temCompras = ((int)$stmtCheckCompras->fetch()['total']) > 0;
-
-
-                /*
-                 * Se houver histórico, arquiva.
-                 * Caso contrário, exclui definitivamente.
-                 */
-
-                if ($temVendas || $temCompras) {
-
-                    $stmtInativar = $pdo->prepare("
-                        UPDATE produtos
-                        SET ativo = FALSE
-                        WHERE id = ?
-                        AND empresa_id = ?
-                    ");
-
-                    $stmtInativar->execute([
-                        $id_deletar,
-                        $empresa_id
-                    ]);
-
-                    if ($stmtInativar->rowCount() > 0) {
-
-                        $mensagem = '
-                            <p style="
-                                color:#f59e0b;
-                                margin-bottom:20px;
-                                font-weight:500;
-                            ">
-                                📦 Produto arquivado com sucesso!
-                                O histórico foi preservado.
-                            </p>
-                        ';
-
-                    } else {
-
-                        $mensagem = '
-                            <p style="color:#ef4444;margin-bottom:20px;">
-                                ⚠️ Não foi possível arquivar o produto.
-                            </p>
-                        ';
-                    }
-
-                } else {
-
-                    $stmtDel = $pdo->prepare("
-                        DELETE FROM produtos
-                        WHERE id = ?
-                        AND empresa_id = ?
-                    ");
-
-                    $stmtDel->execute([
-                        $id_deletar,
-                        $empresa_id
-                    ]);
-
-                    if ($stmtDel->rowCount() > 0) {
-
-                        $mensagem = '
-                            <p style="
-                                color:#10b981;
-                                margin-bottom:20px;
-                                font-weight:500;
-                            ">
-                                🗑️ Produto excluído com sucesso!
-                            </p>
-                        ';
-
-                    } else {
-
-                        $mensagem = '
-                            <p style="color:#ef4444;margin-bottom:20px;">
-                                ⚠️ Não foi possível excluir o produto.
-                            </p>
-                        ';
-                    }
-                }
-            }
-
-        } catch (Throwable $e) {
-
-            error_log($e->getMessage());
+        if ($id_del > 0) {
+            $stmtDel = $pdo->prepare("UPDATE produtos SET ativo = FALSE WHERE id = ? AND empresa_id = ?");
+            $stmtDel->execute([$id_del, $empresa_id]);
 
             $mensagem = '
-                <p style="color:#ef4444;margin-bottom:20px;">
-                    ⚠️ Ocorreu um erro ao excluir o produto.
-                </p>
+                <div class="flex items-start gap-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl mb-6 text-sm">
+                    <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5"></i>
+                    <div><strong class="font-semibold block text-emerald-300">Produto removido com sucesso!</strong></div>
+                </div>
             ';
         }
+    } catch (Throwable $e) {
+        $mensagem = '
+            <div class="flex items-start gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-6 text-sm">
+                <i data-lucide="alert-circle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
+                <div><strong class="font-semibold block text-rose-300">Erro ao remover produto.</strong></div>
+            </div>
+        ';
     }
 }
 
-
 /*
 |--------------------------------------------------------------------------
-| 2. SALVAR / EDITAR PRODUTO
+| 2. CADASTRAR OU EDITAR PRODUTO
 |--------------------------------------------------------------------------
 */
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['salvar_produto'])) {
+    try {
+        if (function_exists('validar_csrf')) validar_csrf();
 
-    validar_csrf();
+        $id_produto = (int)($_POST['id_produto'] ?? 0);
+        $nome = trim($_POST['nome'] ?? '');
+        $fornecedor = trim($_POST['fornecedor'] ?? '');
+        $preco_custo = converterMoedaParaFloat($_POST['preco_custo'] ?? '0');
+        $preco_venda = converterMoedaParaFloat($_POST['preco_venda'] ?? '0');
+        $estoque = (int)($_POST['estoque'] ?? 0);
 
-    $id = (int)($_POST['id'] ?? 0);
+        if (empty($nome)) {
+            throw new Exception('Informe o nome do produto.');
+        }
 
-    $nome = trim($_POST['nome'] ?? '');
-    $fornecedor = trim($_POST['fornecedor'] ?? '');
+        if ($preco_custo < 0 || $preco_venda < 0 || $estoque < 0) {
+            throw new Exception('Valores e estoque não podem ser negativos.');
+        }
 
-    $preco_custo = (float)($_POST['preco_custo'] ?? 0);
-    $preco_venda = (float)($_POST['preco_venda'] ?? 0);
-
-    $estoque = (int)($_POST['estoque'] ?? 0);
-
-
-    if (empty($nome)) {
-
-        $mensagem = '
-            <p style="color:#ef4444;margin-bottom:20px;">
-                ⚠️ Informe o nome do produto.
-            </p>
-        ';
-
-    } elseif ($preco_custo < 0 || $preco_venda < 0 || $estoque < 0) {
-
-        $mensagem = '
-            <p style="color:#ef4444;margin-bottom:20px;">
-                ⚠️ Os valores não podem ser negativos.
-            </p>
-        ';
-
-    } else {
-
-        try {
-
-            if ($id > 0) {
-
-                $stmt = $pdo->prepare("
-                    UPDATE produtos
-                    SET
-                        nome = ?,
-                        fornecedor = ?,
-                        preco_custo = ?,
-                        preco_venda = ?,
-                        estoque = ?
-                    WHERE id = ?
-                    AND empresa_id = ?
-                ");
-
-                $stmt->execute([
-                    $nome,
-                    $fornecedor,
-                    $preco_custo,
-                    $preco_venda,
-                    $estoque,
-                    $id,
-                    $empresa_id
-                ]);
-
-                $mensagem = '
-                    <p style="color:#10b981;margin-bottom:20px;">
-                        ✏️ Produto atualizado com sucesso!
-                    </p>
-                ';
-
-            } else {
-
-                $stmt = $pdo->prepare("
-                    INSERT INTO produtos
-                    (
-                        empresa_id,
-                        nome,
-                        fornecedor,
-                        preco_custo,
-                        preco_venda,
-                        estoque
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ");
-
-                $stmt->execute([
-                    $empresa_id,
-                    $nome,
-                    $fornecedor,
-                    $preco_custo,
-                    $preco_venda,
-                    $estoque
-                ]);
-
-                $mensagem = '
-                    <p style="color:#10b981;margin-bottom:20px;">
-                        ✅ Produto cadastrado com sucesso!
-                    </p>
-                ';
-            }
-
-        } catch (Throwable $e) {
-
-            error_log($e->getMessage());
+        if ($id_produto > 0) {
+            $stmtUp = $pdo->prepare("
+                UPDATE produtos 
+                SET nome = ?, fornecedor = ?, preco_custo = ?, preco_venda = ?, estoque = ? 
+                WHERE id = ? AND empresa_id = ?
+            ");
+            $stmtUp->execute([$nome, $fornecedor, $preco_custo, $preco_venda, $estoque, $id_produto, $empresa_id]);
 
             $mensagem = '
-                <p style="color:#ef4444;margin-bottom:20px;">
-                    ⚠️ Não foi possível salvar o produto.
-                </p>
+                <div class="flex items-start gap-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl mb-6 text-sm">
+                    <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5"></i>
+                    <div><strong class="font-semibold block text-emerald-300">Produto atualizado com sucesso!</strong></div>
+                </div>
+            ';
+        } else {
+            $stmtIns = $pdo->prepare("
+                INSERT INTO produtos (empresa_id, nome, fornecedor, preco_custo, preco_venda, estoque, ativo) 
+                VALUES (?, ?, ?, ?, ?, ?, TRUE)
+            ");
+            $stmtIns->execute([$empresa_id, $nome, $fornecedor, $preco_custo, $preco_venda, $estoque]);
+
+            $mensagem = '
+                <div class="flex items-start gap-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl mb-6 text-sm">
+                    <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5"></i>
+                    <div><strong class="font-semibold block text-emerald-300">Produto cadastrado com sucesso!</strong></div>
+                </div>
             ';
         }
+    } catch (Throwable $e) {
+        $mensagem = '
+            <div class="flex items-start gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-6 text-sm">
+                <i data-lucide="alert-triangle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
+                <div><strong class="font-semibold block text-rose-300">' . htmlspecialchars($e->getMessage()) . '</strong></div>
+            </div>
+        ';
     }
 }
 
-
 /*
 |--------------------------------------------------------------------------
-| 3. PRODUTO PARA EDIÇÃO
+| 3. BUSCAR PRODUTO PARA EDIÇÃO
 |--------------------------------------------------------------------------
 */
-
 $produto_editar = null;
-
-if (
-    isset($_GET['acao']) &&
-    $_GET['acao'] === 'editar' &&
-    isset($_GET['id'])
-) {
-
-    $id_editar = (int)$_GET['id'];
-
-    $stmt = $pdo->prepare("
-        SELECT *
-        FROM produtos
-        WHERE id = ?
-        AND empresa_id = ?
-        LIMIT 1
-    ");
-
-    $stmt->execute([
-        $id_editar,
-        $empresa_id
-    ]);
-
-    $produto_editar = $stmt->fetch();
+if (isset($_GET['acao']) && $_GET['acao'] === 'editar' && isset($_GET['id'])) {
+    $id_ed = (int)$_GET['id'];
+    $stmtEd = $pdo->prepare("SELECT * FROM produtos WHERE id = ? AND empresa_id = ? LIMIT 1");
+    $stmtEd->execute([$id_ed, $empresa_id]);
+    $produto_editar = $stmtEd->fetch(PDO::FETCH_ASSOC);
 }
-
 
 /*
 |--------------------------------------------------------------------------
-| 4. BUSCA
+| 4. CONSULTA E CONTAGEM DE PRODUTOS
 |--------------------------------------------------------------------------
 */
-
 $busca = trim($_GET['busca'] ?? '');
+$aba_estoque = trim($_GET['aba_estoque'] ?? 'todos'); // todos | disponivel | esgotado
 
-$pagina = max(
-    1,
-    (int)($_GET['pagina'] ?? 1)
-);
-
-$por_pagina = 15;
-
-$offset = ($pagina - 1) * $por_pagina;
-
-
-/*
-|--------------------------------------------------------------------------
-| 5. CONTAGEM TOTAL
-|--------------------------------------------------------------------------
-*/
-
-$params_count = [$empresa_id];
-
-$sql_count_busca = '';
-
-if (!empty($busca)) {
-
-    $sql_count_busca = "
-        AND (
-            nome LIKE ?
-            OR fornecedor LIKE ?
-        )
-    ";
-
-    $params_count[] = "%{$busca}%";
-    $params_count[] = "%{$busca}%";
-}
-
-
-$stmtCount = $pdo->prepare("
-    SELECT COUNT(*) AS total
-    FROM produtos
-    WHERE empresa_id = ?
-    AND ativo = TRUE
-    {$sql_count_busca}
-");
-
-$stmtCount->execute($params_count);
-
-$total_produtos = (int)$stmtCount->fetch()['total'];
-
-$total_paginas = max(
-    1,
-    (int)ceil($total_produtos / $por_pagina)
-);
-
-
-/*
- * Caso alguém informe uma página maior que a existente
- */
-
-if ($pagina > $total_paginas) {
-
-    $pagina = $total_paginas;
-
-    $offset = ($pagina - 1) * $por_pagina;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| 6. LISTAGEM
-|--------------------------------------------------------------------------
-*/
-
-$params = [$empresa_id];
-
+$paramsGeral = [$empresa_id];
 $sql_busca = '';
 
 if (!empty($busca)) {
-
-    $sql_busca = "
-        AND (
-            nome LIKE ?
-            OR fornecedor LIKE ?
-        )
-    ";
-
-    $params[] = "%{$busca}%";
-    $params[] = "%{$busca}%";
+    $sql_busca .= " AND (nome LIKE ? OR fornecedor LIKE ?) ";
+    $paramsGeral[] = "%{$busca}%";
+    $paramsGeral[] = "%{$busca}%";
 }
 
-$params[] = $por_pagina;
-$params[] = $offset;
-
-
-$stmt = $pdo->prepare("
-    SELECT *
+// Contagens de status
+$stmtCount = $pdo->prepare("
+    SELECT 
+        COUNT(*) as total_todos,
+        COALESCE(SUM(CASE WHEN estoque > 0 THEN 1 ELSE 0 END), 0) as total_disp,
+        COALESCE(SUM(CASE WHEN estoque <= 0 THEN 1 ELSE 0 END), 0) as total_esgotado
     FROM produtos
-    WHERE empresa_id = ?
-    AND ativo = TRUE
-    {$sql_busca}
-    ORDER BY id DESC
-    LIMIT ? OFFSET ?
+    WHERE empresa_id = ? AND ativo = TRUE {$sql_busca}
 ");
+$stmtCount->execute($paramsGeral);
+$contagens = $stmtCount->fetch(PDO::FETCH_ASSOC);
 
-$stmt->execute($params);
+$totalTodos = (int)($contagens['total_todos'] ?? 0);
+$totalDisp = (int)($contagens['total_disp'] ?? 0);
+$totalEsgotado = (int)($contagens['total_esgotado'] ?? 0);
 
-$produtos = $stmt->fetchAll();
+// Filtro da query por aba
+$sql_aba = '';
+if ($aba_estoque === 'disponivel') {
+    $sql_aba = " AND estoque > 0 ";
+} elseif ($aba_estoque === 'esgotado') {
+    $sql_aba = " AND estoque <= 0 ";
+}
 
+$stmtProd = $pdo->prepare("
+    SELECT * FROM produtos 
+    WHERE empresa_id = ? AND ativo = TRUE {$sql_busca} {$sql_aba}
+    ORDER BY estoque DESC, nome ASC
+");
+$stmtProd->execute($paramsGeral);
+$produtos = $stmtProd->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
+<script src="https://unpkg.com/lucide@latest"></script>
 
 <style>
-
-/*
-|--------------------------------------------------------------------------
-| CONTAINER DOS PRODUTOS
-|--------------------------------------------------------------------------
-*/
-
-.produtos-lista {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| CARD DO PRODUTO
-|--------------------------------------------------------------------------
-*/
-
-.produto-card {
-    border: 1px solid #27272a;
-    border-radius: 12px;
-    background: #09090b;
-    overflow: hidden;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| CABEÇALHO COMPACTO
-|--------------------------------------------------------------------------
-*/
-
-.produto-resumo {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 15px 16px;
-    cursor: pointer;
-    background: transparent;
-    border: none;
-    color: #f8fafc;
-    text-align: left;
-}
-
-
-.produto-resumo:hover {
-    background: #111113;
-}
-
-
-.produto-info-principal {
-    min-width: 0;
-    flex: 1;
-}
-
-
-.produto-nome {
-    font-size: 15px;
-    font-weight: 600;
-    color: #f8fafc;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-
-.produto-resumo-meta {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-shrink: 0;
-}
-
-
-.produto-meta-item {
-    font-size: 13px;
-    color: #a1a1aa;
-    white-space: nowrap;
-}
-
-
-.produto-meta-valor {
-    color: #e4e4e7;
-    font-weight: 500;
-}
-
-
-.produto-seta {
-    width: 30px;
-    height: 30px;
-    border-radius: 7px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #18181b;
-    border: 1px solid #27272a;
-    color: #a1a1aa;
-    font-size: 14px;
-    transition: transform .2s ease;
-    flex-shrink: 0;
-}
-
-
-.produto-card.aberto .produto-seta {
+.produto-card.aberto .produto-seta-icon {
     transform: rotate(180deg);
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| DETALHES
-|--------------------------------------------------------------------------
-*/
-
 .produto-detalhes {
     display: none;
-    padding: 0 16px 16px;
 }
-
-
 .produto-card.aberto .produto-detalhes {
     display: block;
 }
-
-
-.produto-detalhes-linha {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 15px;
-    padding: 10px 0;
-    border-top: 1px solid #18181b;
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
 }
-
-
-.produto-detalhes-label {
-    color: #71717a;
-    font-size: 13px;
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
 }
-
-
-.produto-detalhes-valor {
-    color: #e4e4e7;
-    font-size: 13px;
-    text-align: right;
-}
-
-
-.produto-acoes {
-    display: flex;
-    gap: 8px;
-    padding-top: 12px;
-    margin-top: 4px;
-    border-top: 1px solid #27272a;
-}
-
-
-.produto-btn {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    text-decoration: none;
-    font-size: 13px;
-    cursor: pointer;
-}
-
-
-.produto-btn-editar {
-    background: #18181b;
-    color: #f8fafc;
-    border: 1px solid #27272a;
-}
-
-
-.produto-btn-editar:hover {
-    background: #27272a;
-}
-
-
-.produto-btn-excluir {
-    background: #18181b;
-    color: #fca5a5;
-    border: 1px solid #27272a;
-}
-
-
-.produto-btn-excluir:hover {
-    background: #27272a;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| PAGINAÇÃO
-|--------------------------------------------------------------------------
-*/
-
-.produtos-paginacao {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-top: 20px;
-}
-
-
-.produtos-paginacao a,
-.produtos-paginacao span {
-    min-width: 36px;
-    height: 36px;
-    padding: 0 10px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 7px;
-    text-decoration: none;
-    font-size: 13px;
-}
-
-
-.produtos-paginacao a {
-    color: #cbd5e1;
-    background: #18181b;
-    border: 1px solid #27272a;
-}
-
-
-.produtos-paginacao a:hover {
-    background: #27272a;
-}
-
-
-.produtos-paginacao .pagina-atual {
-    color: #ffffff;
-    background: #27272a;
-    border: 1px solid #3f3f46;
-    font-weight: 600;
-}
-
-
-.produtos-paginacao .pagina-desativada {
-    color: #52525b;
-    background: #09090b;
-    border: 1px solid #18181b;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| MOBILE
-|--------------------------------------------------------------------------
-*/
-
-@media (max-width: 700px) {
-
-    .produto-resumo {
-        padding: 14px;
-        gap: 8px;
-    }
-
-
-    .produto-nome {
-        font-size: 14px;
-    }
-
-
-    .produto-resumo-meta {
-        gap: 8px;
-    }
-
-
-    .produto-meta-item {
-        font-size: 12px;
-    }
-
-
-    /*
-     * No celular mostramos somente
-     * estoque + preço no resumo.
-     */
-
-    .produto-meta-custo {
-        display: none;
-    }
-
-
-    .produto-seta {
-        width: 28px;
-        height: 28px;
-        font-size: 12px;
-    }
-
-
-    .produto-detalhes {
-        padding: 0 14px 14px;
-    }
-
-
-    .produto-acoes {
-        gap: 7px;
-    }
-
-
-    .produto-btn {
-        padding: 10px 8px;
-    }
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| TELAS MUITO PEQUENAS
-|--------------------------------------------------------------------------
-*/
-
-@media (max-width: 380px) {
-
-    .produto-resumo-meta {
-        gap: 5px;
-    }
-
-
-    .produto-meta-item {
-        font-size: 11px;
-    }
-
-
-    .produto-btn {
-        font-size: 12px;
-    }
-}
-
 </style>
 
-
-<header class="header">
-
+<!-- CABEÇALHO -->
+<header class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
     <div>
-
-        <h2>Produtos</h2>
-
-        <p style="
-            color:#94a3b8;
-            font-size:14px;
-        ">
+        <h2 class="text-2xl font-black text-white flex items-center gap-2.5 tracking-tight m-0">
+            <div class="p-2 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                <i data-lucide="package" class="w-5 h-5 text-emerald-400"></i>
+            </div>
+            <?= $produto_editar ? 'Editar Produto' : 'Produtos' ?>
+        </h2>
+        <p class="text-sm text-zinc-400 mt-2 m-0">
             Catálogo, fornecedores, custos e controle de estoque
         </p>
-
     </div>
-
 </header>
-
 
 <?= $mensagem ?>
 
-
-<!-- ==========================================================
-     FORMULÁRIO
-========================================================== -->
-
-<div
-    class="table-container"
-    style="margin-bottom:30px;"
->
-
-    <h3 style="margin-bottom:15px;">
-
-        <?= $produto_editar
-            ? '✏️ Editar Produto'
-            : '+ Novo Produto'
-        ?>
-
-    </h3>
-
-
-    <form
-        method="POST"
-        action="index.php?page=produtos"
-    >
-
-        <input
-            type="hidden"
-            name="csrf_token"
-            value="<?= htmlspecialchars(csrf_token()) ?>"
-        >
-
-
-        <?php if ($produto_editar): ?>
-
-            <input
-                type="hidden"
-                name="id"
-                value="<?= (int)$produto_editar['id'] ?>"
-            >
-
-        <?php endif; ?>
-
-
-        <div
-            style="
-                display:flex;
-                gap:15px;
-                flex-wrap:wrap;
-                margin-bottom:15px;
-            "
-        >
-
-            <div
-                style="
-                    flex:2;
-                    min-width:200px;
-                "
-            >
-
-                <label
-                    style="
-                        display:block;
-                        font-size:13px;
-                        color:#94a3b8;
-                        margin-bottom:5px;
-                    "
-                >
-                    Nome do Produto
-                </label>
-
-                <input
-                    type="text"
-                    name="nome"
-                    value="<?= $produto_editar
-                        ? htmlspecialchars($produto_editar['nome'])
-                        : ''
-                    ?>"
-                    required
-                    style="
-                        width:100%;
-                        padding:10px;
-                    "
-                >
-
-            </div>
-
-
-            <div
-                style="
-                    flex:1.5;
-                    min-width:160px;
-                "
-            >
-
-                <label
-                    style="
-                        display:block;
-                        font-size:13px;
-                        color:#94a3b8;
-                        margin-bottom:5px;
-                    "
-                >
-                    Fornecedor
-
-                    <span
-                        style="
-                            color:#71717a;
-                            font-size:11px;
-                        "
-                    >
-                        (Opcional)
-                    </span>
-
-                </label>
-
-                <input
-                    type="text"
-                    name="fornecedor"
-                    placeholder="Ex: Mercado Livre, Shopee"
-                    value="<?= $produto_editar
-                        ? htmlspecialchars($produto_editar['fornecedor'] ?? '')
-                        : ''
-                    ?>"
-                    style="
-                        width:100%;
-                        padding:10px;
-                    "
-                >
-
-            </div>
-
-
-            <div
-                style="
-                    flex:1;
-                    min-width:110px;
-                "
-            >
-
-                <label
-                    style="
-                        display:block;
-                        font-size:13px;
-                        color:#94a3b8;
-                        margin-bottom:5px;
-                    "
-                >
-                    Custo (R$)
-                </label>
-
-                <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="preco_custo"
-                    value="<?= $produto_editar
-                        ? htmlspecialchars($produto_editar['preco_custo'])
-                        : ''
-                    ?>"
-                    required
-                    style="
-                        width:100%;
-                        padding:10px;
-                    "
-                >
-
-            </div>
-
-
-            <div
-                style="
-                    flex:1;
-                    min-width:110px;
-                "
-            >
-
-                <label
-                    style="
-                        display:block;
-                        font-size:13px;
-                        color:#94a3b8;
-                        margin-bottom:5px;
-                    "
-                >
-                    Venda (R$)
-                </label>
-
-                <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    name="preco_venda"
-                    value="<?= $produto_editar
-                        ? htmlspecialchars($produto_editar['preco_venda'])
-                        : ''
-                    ?>"
-                    required
-                    style="
-                        width:100%;
-                        padding:10px;
-                    "
-                >
-
-            </div>
-
-
-            <div
-                style="
-                    flex:1;
-                    min-width:100px;
-                "
-            >
-
-                <label
-                    style="
-                        display:block;
-                        font-size:13px;
-                        color:#94a3b8;
-                        margin-bottom:5px;
-                    "
-                >
-                    Estoque
-                </label>
-
-                <input
-                    type="number"
-                    min="0"
-                    name="estoque"
-                    value="<?= $produto_editar
-                        ? htmlspecialchars($produto_editar['estoque'])
-                        : '0'
-                    ?>"
-                    required
-                    style="
-                        width:100%;
-                        padding:10px;
-                    "
-                >
-
-            </div>
-
+<!-- FORMULÁRIO DE NOVO / EDITAR PRODUTO -->
+<div id="form-produto-card" class="bg-[#09090b] border <?= $produto_editar ? 'border-emerald-500/40 shadow-[0_0_30px_rgba(16,185,129,0.08)]' : 'border-zinc-800/80' ?> rounded-2xl p-4 sm:p-6 mb-8 max-w-3xl overflow-hidden box-border">
+    <div class="flex items-center gap-2.5 mb-5">
+        <div class="p-1.5 bg-zinc-800/60 rounded-lg text-zinc-400">
+            <i data-lucide="<?= $produto_editar ? 'pencil' : 'plus' ?>" class="w-4 h-4 <?= $produto_editar ? 'text-emerald-400' : '' ?>"></i>
         </div>
-
-
-        <!-- ==================================================
-             BOTÕES
-        ================================================== -->
-
-        <div
-            style="
-                display:flex;
-                gap:10px;
-                flex-wrap:wrap;
-            "
-        >
-
-            <button
-                type="submit"
-                name="salvar_produto"
-                style="
-                    padding:11px 24px;
-                    cursor:pointer;
-                "
-            >
-
-                <?= $produto_editar
-                    ? 'Atualizar Produto'
-                    : 'Salvar Produto'
-                ?>
-
-            </button>
-
-
-            <?php if ($produto_editar): ?>
-
-                <a
-                    href="index.php?page=produtos"
-                    style="
-                        background:#18181b;
-                        color:#cbd5e1;
-                        text-decoration:none;
-                        padding:11px 16px;
-                        border-radius:6px;
-                        font-size:14px;
-                        border:1px solid #27272a;
-                    "
-                >
-                    Cancelar
-                </a>
-
-            <?php endif; ?>
-
-        </div>
-
-    </form>
-
-</div>
-
-
-<!-- ==========================================================
-     PRODUTOS CADASTRADOS
-========================================================== -->
-
-<div class="table-container">
-
-    <div
-        style="
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-            margin-bottom:15px;
-            flex-wrap:wrap;
-            gap:10px;
-        "
-    >
-
-        <div>
-
-            <h3 style="margin-bottom:4px;">
-                Produtos Cadastrados
-            </h3>
-
-            <span
-                style="
-                    color:#71717a;
-                    font-size:12px;
-                "
-            >
-                <?= $total_produtos ?>
-                <?= $total_produtos == 1 ? 'produto' : 'produtos' ?>
-            </span>
-
-        </div>
-
-
-        <!-- ==================================================
-             BUSCA
-        ================================================== -->
-
-        <form
-            method="GET"
-            action="index.php"
-            style="
-                display:flex;
-                gap:8px;
-                max-width:100%;
-            "
-        >
-
-            <input
-                type="hidden"
-                name="page"
-                value="produtos"
-            >
-
-            <input
-                type="text"
-                name="busca"
-                placeholder="🔍 Buscar..."
-                value="<?= htmlspecialchars($busca) ?>"
-                style="
-                    padding:8px 12px;
-                    font-size:13px;
-                    min-width:180px;
-                "
-            >
-
-            <button
-                type="submit"
-                style="
-                    padding:8px 12px;
-                    cursor:pointer;
-                "
-            >
-                Buscar
-            </button>
-
-
-            <?php if (!empty($busca)): ?>
-
-                <a
-                    href="index.php?page=produtos"
-                    style="
-                        color:#ef4444;
-                        text-decoration:none;
-                        font-size:13px;
-                        align-self:center;
-                    "
-                >
-                    Limpar
-                </a>
-
-            <?php endif; ?>
-
-        </form>
-
+        <h3 class="text-base font-bold text-white m-0">
+            <?= $produto_editar ? 'Alterar Dados do Produto' : 'Novo Produto' ?>
+        </h3>
     </div>
 
-
-    <!-- ======================================================
-         LISTA DE PRODUTOS
-    ======================================================= -->
-
-    <?php if (count($produtos) > 0): ?>
-
-        <div class="produtos-lista">
-
-            <?php foreach ($produtos as $p): ?>
-
-                <?php
-
-                $custo = (float)$p['preco_custo'];
-
-                $venda = (float)$p['preco_venda'];
-
-                $estoque_atual = (int)$p['estoque'];
-
-                $margem = $venda > 0
-                    ? ((($venda - $custo) / $venda) * 100)
-                    : 0;
-
-                ?>
-
-
-                <div class="produto-card">
-
-
-                    <!-- ==================================================
-                         RESUMO
-                    ================================================== -->
-
-                    <button
-                        type="button"
-                        class="produto-resumo"
-                        onclick="toggleProduto(this)"
-                        aria-expanded="false"
-                    >
-
-                        <div class="produto-info-principal">
-
-                            <div class="produto-nome">
-                                <?= htmlspecialchars($p['nome']) ?>
-                            </div>
-
-                        </div>
-
-
-                        <div class="produto-resumo-meta">
-
-                            <div class="produto-meta-item">
-
-                                Estoque:
-
-                                <span class="produto-meta-valor">
-                                    <?= $estoque_atual ?> un.
-                                </span>
-
-                            </div>
-
-
-                            <div class="produto-meta-item">
-
-                                <span class="produto-meta-valor">
-                                    R$
-                                    <?= number_format(
-                                        $venda,
-                                        2,
-                                        ',',
-                                        '.'
-                                    ) ?>
-                                </span>
-
-                            </div>
-
-                        </div>
-
-
-                        <span class="produto-seta">
-                            ▼
-                        </span>
-
-                    </button>
-
-
-                    <!-- ==================================================
-                         DETALHES OCULTOS
-                    ================================================== -->
-
-                    <div class="produto-detalhes">
-
-
-                        <div class="produto-detalhes-linha">
-
-                            <span class="produto-detalhes-label">
-                                Fornecedor
-                            </span>
-
-                            <span class="produto-detalhes-valor">
-
-                                <?php if (!empty($p['fornecedor'])): ?>
-
-                                    <?= htmlspecialchars($p['fornecedor']) ?>
-
-                                <?php else: ?>
-
-                                    <span style="color:#52525b;">
-                                        —
-                                    </span>
-
-                                <?php endif; ?>
-
-                            </span>
-
-                        </div>
-
-
-                        <div class="produto-detalhes-linha">
-
-                            <span class="produto-detalhes-label">
-                                Estoque
-                            </span>
-
-                            <span class="produto-detalhes-valor">
-                                <?= $estoque_atual ?> un.
-                            </span>
-
-                        </div>
-
-
-                        <div class="produto-detalhes-linha">
-
-                            <span class="produto-detalhes-label">
-                                Custo médio
-                            </span>
-
-                            <span class="produto-detalhes-valor">
-                                R$
-                                <?= number_format(
-                                    $custo,
-                                    2,
-                                    ',',
-                                    '.'
-                                ) ?>
-                            </span>
-
-                        </div>
-
-
-                        <div class="produto-detalhes-linha">
-
-                            <span class="produto-detalhes-label">
-                                Preço sugerido
-                            </span>
-
-                            <span class="produto-detalhes-valor">
-                                R$
-                                <?= number_format(
-                                    $venda,
-                                    2,
-                                    ',',
-                                    '.'
-                                ) ?>
-                            </span>
-
-                        </div>
-
-
-                        <div class="produto-detalhes-linha">
-
-                            <span class="produto-detalhes-label">
-                                Margem estimada
-                            </span>
-
-                            <span
-                                class="produto-detalhes-valor"
-                                style="
-                                    color:#34d399;
-                                    font-weight:500;
-                                "
-                            >
-                                <?= number_format(
-                                    $margem,
-                                    1,
-                                    ',',
-                                    '.'
-                                ) ?>%
-                            </span>
-
-                        </div>
-
-
-                        <!-- ==================================================
-                             AÇÕES
-                        ================================================== -->
-
-                        <div class="produto-acoes">
-
-
-                            <a
-                                href="index.php?page=produtos&acao=editar&id=<?= (int)$p['id'] ?>"
-                                class="produto-btn produto-btn-editar"
-                            >
-                                ✏️ Editar
-                            </a>
-
-
-                            <form
-                                method="POST"
-                                action="index.php?page=produtos"
-                                style="
-                                    flex:0 0 auto;
-                                    margin:0;
-                                "
-                                onsubmit="return confirmarExclusaoProduto(event, this);"
-                            >
-
-                                <input
-                                    type="hidden"
-                                    name="csrf_token"
-                                    value="<?= htmlspecialchars(csrf_token()) ?>"
-                                >
-
-
-                                <input
-                                    type="hidden"
-                                    name="deletar_produto"
-                                    value="1"
-                                >
-
-
-                                <input
-                                    type="hidden"
-                                    name="id_produto"
-                                    value="<?= (int)$p['id'] ?>"
-                                >
-
-
-                                <button
-                                    type="submit"
-                                    class="produto-btn produto-btn-excluir"
-                                >
-                                    🗑️ Excluir
-                                </button>
-
-                            </form>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-            <?php endforeach; ?>
-
+    <form method="POST" action="index.php?page=produtos" class="space-y-4">
+        <?php if (function_exists('csrf_token')): ?>
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+        <?php endif; ?>
+        <?php if ($produto_editar): ?>
+            <input type="hidden" name="id_produto" value="<?= (int)$produto_editar['id'] ?>">
+        <?php endif; ?>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="min-w-0">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Nome do Produto *</label>
+                <input type="text" name="nome" required placeholder="Ex: Camiseta Básica Preta"
+                       value="<?= htmlspecialchars($produto_editar['nome'] ?? '') ?>"
+                       class="w-full box-border bg-[#000000] border border-zinc-800 text-zinc-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-emerald-500 transition-colors">
+            </div>
+
+            <div class="min-w-0">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Fornecedor (opcional)</label>
+                <input type="text" name="fornecedor" placeholder="Ex: Mercado Livre, Shopee"
+                       value="<?= htmlspecialchars($produto_editar['fornecedor'] ?? '') ?>"
+                       class="w-full box-border bg-[#000000] border border-zinc-800 text-zinc-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-emerald-500 transition-colors">
+            </div>
         </div>
 
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="min-w-0">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Custo Unitário (R$)</label>
+                <input type="text" name="preco_custo" id="prod_custo" placeholder="0,00"
+                       value="<?= $produto_editar ? number_format((float)$produto_editar['preco_custo'], 2, ',', '.') : '0,00' ?>"
+                       class="w-full box-border bg-[#000000] border border-zinc-800 text-zinc-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-emerald-500 transition-colors">
+            </div>
 
-    <?php else: ?>
+            <div class="min-w-0">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Preço de Venda (R$)</label>
+                <input type="text" name="preco_venda" id="prod_venda" placeholder="0,00"
+                       value="<?= $produto_editar ? number_format((float)$produto_editar['preco_venda'], 2, ',', '.') : '0,00' ?>"
+                       class="w-full box-border bg-[#000000] border border-zinc-800 text-zinc-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-emerald-500 transition-colors">
+            </div>
 
-        <div
-            style="
-                padding:35px 15px;
-                color:#94a3b8;
-                text-align:center;
-            "
-        >
-
-            <?php if (!empty($busca)): ?>
-
-                Nenhum produto encontrado para
-                <strong>
-                    "<?= htmlspecialchars($busca) ?>"
-                </strong>.
-
-            <?php else: ?>
-
-                Nenhum produto cadastrado.
-
-            <?php endif; ?>
-
+            <div class="min-w-0">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Estoque Inicial (un.)</label>
+                <input type="number" name="estoque" min="0" placeholder="0"
+                       value="<?= $produto_editar ? (int)$produto_editar['estoque'] : '0' ?>"
+                       class="w-full box-border bg-[#000000] border border-zinc-800 text-zinc-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-emerald-500 transition-colors">
+            </div>
         </div>
 
-    <?php endif; ?>
+        <div class="flex items-center gap-3 pt-2">
+            <button type="submit" name="salvar_produto"
+                    class="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-bold rounded-xl px-6 py-3 transition-all shadow-[0_0_20px_rgba(16,185,129,0.15)] cursor-pointer">
+                <i data-lucide="check" class="w-4 h-4"></i>
+                <?= $produto_editar ? 'Atualizar Produto' : 'Salvar Produto' ?>
+            </button>
 
-
-    <!-- ======================================================
-         PAGINAÇÃO
-    ======================================================= -->
-
-    <?php if ($total_paginas > 1): ?>
-
-        <div class="produtos-paginacao">
-
-
-            <?php if ($pagina > 1): ?>
-
-                <a
-                    href="index.php?page=produtos&pagina=<?= $pagina - 1 ?><?= !empty($busca) ? '&busca=' . urlencode($busca) : '' ?>"
-                >
-                    ‹
+            <?php if ($produto_editar): ?>
+                <a href="index.php?page=produtos" class="inline-flex items-center justify-center bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-sm font-semibold rounded-xl px-5 py-3 transition-colors no-underline">
+                    Cancelar
                 </a>
-
-            <?php else: ?>
-
-                <span class="pagina-desativada">
-                    ‹
-                </span>
-
             <?php endif; ?>
-
-
-            <?php
-
-            /*
-             * Mostra no máximo 5 números de página.
-             */
-
-            $inicio = max(1, $pagina - 2);
-
-            $fim = min(
-                $total_paginas,
-                $pagina + 2
-            );
-
-            if ($inicio > 1):
-
-            ?>
-
-                <a
-                    href="index.php?page=produtos&pagina=1<?= !empty($busca) ? '&busca=' . urlencode($busca) : '' ?>"
-                >
-                    1
-                </a>
-
-                <?php if ($inicio > 2): ?>
-
-                    <span style="color:#52525b;">
-                        ...
-                    </span>
-
-                <?php endif; ?>
-
-            <?php endif; ?>
-
-
-            <?php for ($i = $inicio; $i <= $fim; $i++): ?>
-
-                <?php if ($i == $pagina): ?>
-
-                    <span class="pagina-atual">
-                        <?= $i ?>
-                    </span>
-
-                <?php else: ?>
-
-                    <a
-                        href="index.php?page=produtos&pagina=<?= $i ?><?= !empty($busca) ? '&busca=' . urlencode($busca) : '' ?>"
-                    >
-                        <?= $i ?>
-                    </a>
-
-                <?php endif; ?>
-
-            <?php endfor; ?>
-
-
-            <?php if ($fim < $total_paginas): ?>
-
-                <?php if ($fim < $total_paginas - 1): ?>
-
-                    <span style="color:#52525b;">
-                        ...
-                    </span>
-
-                <?php endif; ?>
-
-
-                <a
-                    href="index.php?page=produtos&pagina=<?= $total_paginas ?><?= !empty($busca) ? '&busca=' . urlencode($busca) : '' ?>"
-                >
-                    <?= $total_paginas ?>
-                </a>
-
-            <?php endif; ?>
-
-
-            <?php if ($pagina < $total_paginas): ?>
-
-                <a
-                    href="index.php?page=produtos&pagina=<?= $pagina + 1 ?><?= !empty($busca) ? '&busca=' . urlencode($busca) : '' ?>"
-                >
-                    ›
-                </a>
-
-            <?php else: ?>
-
-                <span class="pagina-desativada">
-                    ›
-                </span>
-
-            <?php endif; ?>
-
         </div>
-
-
-        <div
-            style="
-                text-align:center;
-                margin-top:10px;
-                color:#52525b;
-                font-size:11px;
-            "
-        >
-            Página <?= $pagina ?> de <?= $total_paginas ?>
-        </div>
-
-    <?php endif; ?>
-
+    </form>
 </div>
 
+<!-- LISTAGEM DE PRODUTOS CADASTRADOS -->
+<div class="bg-[#09090b] border border-zinc-800/80 rounded-2xl p-4 sm:p-6 overflow-hidden box-border">
+    
+    <!-- HEADER: TÍTULO, CONTADOR, ABAS DE FILTRO E BUSCA -->
+    <div class="flex flex-col gap-4 mb-6 pb-5 border-b border-zinc-900">
+        
+        <div class="flex items-center justify-between gap-2.5">
+            <div class="flex items-center gap-2.5">
+                <div class="p-1.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                    <i data-lucide="boxes" class="w-4.5 h-4.5 text-emerald-400"></i>
+                </div>
+                <h3 class="text-base font-bold text-white m-0">Produtos Cadastrados</h3>
+            </div>
+            
+            <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700/50">
+                <?= count($produtos) ?> <?= count($produtos) === 1 ? 'item' : 'itens' ?>
+            </span>
+        </div>
 
-<!-- ==========================================================
-     JAVASCRIPT
-========================================================== -->
+        <!-- ABAS: TODOS | EM ESTOQUE | ESGOTADOS -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+                <div class="inline-flex bg-[#000000] p-1 rounded-xl border border-zinc-800 text-xs shrink-0">
+                    <a href="index.php?page=produtos&aba_estoque=todos<?= !empty($busca) ? '&busca='.urlencode($busca) : '' ?>" 
+                       class="px-3 py-1.5 rounded-lg no-underline transition flex items-center gap-1.5 whitespace-nowrap <?= $aba_estoque === 'todos' ? 'bg-zinc-800 text-white font-bold' : 'text-zinc-400 hover:text-white' ?>">
+                        <span>Todos</span>
+                        <span class="text-[10px] opacity-80">(<?= $totalTodos ?>)</span>
+                    </a>
+
+                    <a href="index.php?page=produtos&aba_estoque=disponivel<?= !empty($busca) ? '&busca='.urlencode($busca) : '' ?>" 
+                       class="px-3 py-1.5 rounded-lg no-underline transition flex items-center gap-1.5 whitespace-nowrap <?= $aba_estoque === 'disponivel' ? 'bg-emerald-500 text-black font-bold shadow-md shadow-emerald-500/20' : 'text-zinc-400 hover:text-white' ?>">
+                        <i data-lucide="check" class="w-3 h-3"></i>
+                        <span>Em Estoque</span>
+                        <span class="text-[10px] opacity-80">(<?= $totalDisp ?>)</span>
+                    </a>
+
+                    <a href="index.php?page=produtos&aba_estoque=esgotado<?= !empty($busca) ? '&busca='.urlencode($busca) : '' ?>" 
+                       class="px-3 py-1.5 rounded-lg no-underline transition flex items-center gap-1.5 whitespace-nowrap <?= $aba_estoque === 'esgotado' ? 'bg-rose-500 text-white font-bold shadow-md shadow-rose-500/20' : 'text-zinc-400 hover:text-white' ?>">
+                        <i data-lucide="alert-circle" class="w-3 h-3"></i>
+                        <span>Esgotados</span>
+                        <span class="text-[10px] opacity-80">(<?= $totalEsgotado ?>)</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- BUSCA RÁPIDA -->
+            <form method="GET" action="index.php" class="m-0 relative w-full sm:w-64">
+                <input type="hidden" name="page" value="produtos">
+                <input type="hidden" name="aba_estoque" value="<?= htmlspecialchars($aba_estoque) ?>">
+                
+                <div class="relative">
+                    <i data-lucide="search" class="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                    <input type="text" name="busca" placeholder="Buscar produto..." value="<?= htmlspecialchars($busca) ?>"
+                           class="pl-9 pr-8 py-2 bg-[#000000] border border-zinc-800 text-zinc-200 text-xs rounded-xl outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600 w-full">
+                    <?php if (!empty($busca)): ?>
+                        <a href="index.php?page=produtos&aba_estoque=<?= htmlspecialchars($aba_estoque) ?>" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+                            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                        </a>
+                    <?php endif; ?>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- LISTA DE CARDS DE PRODUTOS -->
+    <?php if (count($produtos) > 0): ?>
+        <div class="space-y-3">
+            <?php foreach ($produtos as $p): 
+                $precoCusto = (float)$p['preco_custo'];
+                $precoVenda = (float)$p['preco_venda'];
+                $estoqueQtd = (int)$p['estoque'];
+                $lucroUn = $precoVenda - $precoCusto;
+                $margemUn = $precoVenda > 0 ? (($lucroUn / $precoVenda) * 100) : 0;
+            ?>
+                <div class="produto-card bg-[#000000] border <?= $estoqueQtd > 0 ? 'border-zinc-800/80 hover:border-zinc-700' : 'border-rose-500/30' ?> rounded-2xl overflow-hidden transition" id="prod-card-<?= (int)$p['id'] ?>">
+                    
+                    <!-- LINHA RESUMO -->
+                    <button type="button" class="w-full flex items-start sm:items-center justify-between gap-3 p-3.5 sm:p-4 bg-transparent border-none text-left cursor-pointer transition hover:bg-zinc-900/40" onclick="toggleProdutoCard(<?= (int)$p['id'] ?>)">
+                        
+                        <div class="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+                            <div class="p-2 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 shrink-0 mt-0.5 sm:mt-0">
+                                <i data-lucide="package" class="w-4 h-4 <?= $estoqueQtd > 0 ? 'text-emerald-400' : 'text-rose-400' ?>"></i>
+                            </div>
+
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-2">
+                                    <strong class="text-white text-sm font-semibold truncate block"><?= htmlspecialchars($p['nome']) ?></strong>
+                                    <?php if (!empty($p['fornecedor'])): ?>
+                                        <span class="text-xs text-zinc-500 hidden sm:inline truncate">• Forn: <?= htmlspecialchars($p['fornecedor']) ?></span>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="flex items-center gap-2 mt-1 text-xs text-zinc-500">
+                                    <?php if ($estoqueQtd > 0): ?>
+                                        <span class="text-amber-400 font-semibold">Estoque: <?= $estoqueQtd ?> un.</span>
+                                    <?php else: ?>
+                                        <span class="text-rose-400 font-bold bg-rose-500/10 px-1.5 py-0.5 rounded text-[10px] uppercase">Esgotado (0 un.)</span>
+                                    <?php endif; ?>
+                                    
+                                    <?php if (!empty($p['fornecedor'])): ?>
+                                        <span class="sm:hidden">• <?= htmlspecialchars($p['fornecedor']) ?></span>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-3 shrink-0 ml-2">
+                            <div class="text-right">
+                                <span class="text-[10px] text-zinc-500 uppercase tracking-wider block">Preço de Venda</span>
+                                <strong class="text-sm font-bold text-white block whitespace-nowrap">
+                                    R$ <?= number_format($precoVenda, 2, ',', '.') ?>
+                                </strong>
+                            </div>
+
+                            <div class="produto-seta-icon w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 transition-transform duration-200">
+                                <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                            </div>
+                        </div>
+                    </button>
+
+                    <!-- DETALHES EXPANSÍVEIS -->
+                    <div class="produto-detalhes border-t border-zinc-900 p-4 bg-zinc-950/60">
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3.5 text-xs">
+                            <div class="bg-[#09090b] p-2.5 rounded-xl border border-zinc-900">
+                                <span class="text-zinc-500 block mb-0.5">Preço de Custo</span>
+                                <strong class="text-zinc-300 font-medium">R$ <?= number_format($precoCusto, 2, ',', '.') ?></strong>
+                            </div>
+
+                            <div class="bg-[#09090b] p-2.5 rounded-xl border border-zinc-900">
+                                <span class="text-zinc-500 block mb-0.5">Lucro Bruto / un.</span>
+                                <strong class="font-bold <?= $lucroUn > 0 ? 'text-emerald-400' : 'text-zinc-400' ?>">
+                                    R$ <?= number_format($lucroUn, 2, ',', '.') ?>
+                                </strong>
+                            </div>
+
+                            <div class="bg-[#09090b] p-2.5 rounded-xl border border-zinc-900">
+                                <span class="text-zinc-500 block mb-0.5">Margem Estimada</span>
+                                <strong class="font-bold <?= $margemUn > 0 ? 'text-emerald-400' : 'text-zinc-400' ?>">
+                                    <?= number_format($margemUn, 1, ',', '.') ?>%
+                                </strong>
+                            </div>
+
+                            <div class="bg-[#09090b] p-2.5 rounded-xl border border-zinc-900">
+                                <span class="text-zinc-500 block mb-0.5">Valor em Estoque</span>
+                                <strong class="text-zinc-200 font-bold">
+                                    R$ <?= number_format($estoqueQtd * $precoCusto, 2, ',', '.') ?>
+                                </strong>
+                            </div>
+                        </div>
+
+                        <!-- AÇÕES -->
+                        <div class="flex items-center justify-end gap-2 pt-2 border-t border-zinc-900">
+                            <a href="index.php?page=compras&busca_compra=<?= urlencode($p['nome']) ?>" 
+                               class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-emerald-400 font-semibold transition no-underline">
+                                <i data-lucide="package-plus" class="w-3.5 h-3.5"></i>
+                                <span>Adicionar Estoque</span>
+                            </a>
+
+                            <a href="index.php?page=produtos&acao=editar&id=<?= (int)$p['id'] ?>#form-produto-card" 
+                               class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 font-semibold transition no-underline">
+                                <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                                <span>Editar</span>
+                            </a>
+
+                            <form method="POST" action="index.php?page=produtos" onsubmit="return confirm('Remover este produto do catálogo?');" class="m-0">
+                                <?php if (function_exists('csrf_token')): ?>
+                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
+                                <?php endif; ?>
+                                <input type="hidden" name="id_produto" value="<?= (int)$p['id'] ?>">
+                                <button type="submit" name="excluir_produto" class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 font-semibold transition cursor-pointer">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                    <span>Excluir</span>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php else: ?>
+        <div class="text-zinc-500 text-center py-10 text-sm">
+            Nenhum produto encontrado para o filtro selecionado.
+        </div>
+    <?php endif; ?>
+</div>
 
 <script>
-
-function toggleProduto(botao) {
-
-    const card = botao.closest('.produto-card');
-
-    if (!card) {
-        return;
+document.addEventListener("DOMContentLoaded", function () {
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
     }
+});
 
-    const aberto = card.classList.toggle('aberto');
-
-    botao.setAttribute(
-        'aria-expanded',
-        aberto ? 'true' : 'false'
-    );
-
+function toggleProdutoCard(id) {
+    const card = document.getElementById('prod-card-' + id);
+    if (card) {
+        card.classList.toggle('aberto');
+    }
 }
-
-
-function confirmarExclusaoProduto(event, form) {
-
-    event.preventDefault();
-
-    Swal.fire({
-
-        title: 'Excluir produto?',
-
-        text: 'Se este produto possuir vendas ou compras, ele será arquivado para preservar o histórico.',
-
-        icon: 'warning',
-
-        showCancelButton: true,
-
-        confirmButtonColor: '#ef4444',
-
-        cancelButtonColor: '#27272a',
-
-        confirmButtonText: 'Sim, excluir',
-
-        cancelButtonText: 'Cancelar',
-
-        background: '#09090b',
-
-        color: '#f8fafc',
-
-        customClass: {
-            popup: 'border-modal-dark'
-        }
-
-    }).then(function(result) {
-
-        if (result.isConfirmed) {
-
-            form.submit();
-
-        }
-
-    });
-
-    return false;
-
-}
-
 </script>

@@ -1,23 +1,14 @@
 <?php
 $nomeEmpresaExibicao = $_SESSION['empresa_nome'] ?? 'Minha Empresa';
 $docEmpresaExibicao = $_SESSION['empresa_doc'] ?? '';
+$page = $page ?? ($_GET['page'] ?? 'dashboard');
 
 // Função auxiliar para formatar CPF ou CNPJ
 if (!function_exists('formatarCpfCnpj')) {
     function formatarCpfCnpj($doc) {
         $numeros = preg_replace('/\D/', '', $doc);
-        
-        // Se for CPF (11 dígitos)
-        if (strlen($numeros) === 11) {
-            return preg_replace('/(\d{3})(\d{3})(\d{3})(\d{2})/', '$1.$2.$3-$4', $numeros);
-        }
-        
-        // Se for CNPJ (14 dígitos)
-        if (strlen($numeros) === 14) {
-            return preg_replace('/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/', '$1.$2.$3/$4-$5', $numeros);
-        }
-        
-        // Se tiver outro tamanho (ex: formatado parcial), retorna o original
+        if (strlen($numeros) === 11) return preg_replace('/(\d{3})(\d{3})(\d{3})(\d{2})/', '$1.$2.$3-$4', $numeros);
+        if (strlen($numeros) === 14) return preg_replace('/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/', '$1.$2.$3/$4-$5', $numeros);
         return $doc;
     }
 }
@@ -30,10 +21,10 @@ if (isset($_SESSION['empresa_id']) && isset($pdo)) {
 
         if ($dadosEmpresaSide) {
             $nomeEncontrado = $dadosEmpresaSide['nome'] 
-                           ?? $dadosEmpresaSide['nome_fantasia'] 
-                           ?? $dadosEmpresaSide['nome_empresa'] 
-                           ?? $dadosEmpresaSide['razao_social'] 
-                           ?? null;
+                            ?? $dadosEmpresaSide['nome_fantasia'] 
+                            ?? $dadosEmpresaSide['nome_empresa'] 
+                            ?? $dadosEmpresaSide['razao_social'] 
+                            ?? null;
 
             $docEncontrado = $dadosEmpresaSide['cnpj_cpf'] 
                           ?? $dadosEmpresaSide['cnpj'] 
@@ -52,12 +43,15 @@ if (isset($_SESSION['empresa_id']) && isset($pdo)) {
             }
         }
     } catch (Exception $e) {
-        // Fallback
+        // Fallback silencioso
     }
 }
 
 $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibicao) : '';
 ?>
+
+<!-- Biblioteca Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest"></script>
 
 <style>
 .sidebar {
@@ -68,6 +62,8 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
     padding: 24px 16px;
     box-sizing: border-box;
     z-index: 1000;
+    width: 260px;
+    flex-shrink: 0;
 }
 
 .sidebar-header {
@@ -100,7 +96,7 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
 .company-tag {
     font-size: 13px;
     color: #a1a1aa;
-    margin-top: 6px;
+    margin-top: 8px;
     margin-bottom: 2px;
     font-weight: 600;
     white-space: nowrap;
@@ -148,10 +144,6 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
     font-weight: 600;
 }
 
-.nav-link .icon {
-    font-size: 16px;
-}
-
 .nav-divider {
     height: 1px;
     background-color: #18181b;
@@ -173,33 +165,33 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
 
 @media screen and (max-width: 768px) {
     .mobile-header {
-        display: flex;
-        flex-direction: row;
-        justify-content: space-between;
-        align-items: center;
-        background-color: #09090b;
-        border-bottom: 1px solid #18181b;
-        padding: 14px 16px;
-        position: sticky;
-        top: 0;
-        left: 0;
-        width: 100%;
-        z-index: 900;
-        box-sizing: border-box;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 10px !important;
+        background-color: #09090b !important;
+        border-bottom: 1px solid #18181b !important;
+        padding: 14px 16px !important;
+        position: sticky !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100% !important;
+        z-index: 900 !important;
+        box-sizing: border-box !important;
     }
 
     .btn-menu-toggle {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: #18181b;
-        border: 1px solid #27272a;
-        color: #e4e4e7;
-        font-size: 13px;
-        font-weight: 600;
-        padding: 6px 12px;
-        border-radius: 6px;
-        cursor: pointer;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        background: #18181b !important;
+        border: 1px solid #27272a !important;
+        color: #e4e4e7 !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        padding: 6px 12px !important;
+        border-radius: 6px !important;
+        cursor: pointer !important;
     }
 
     .sidebar {
@@ -257,13 +249,13 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
         <h1 class="logo-text">vende<span>+</span></h1>
     </a>
     <button type="button" class="btn-menu-toggle" onclick="toggleSidebar()">
-        <span>☰</span> Menu
+        <i data-lucide="menu" style="width: 16px; height: 16px;"></i> Menu
     </button>
 </div>
 
 <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar()"></div>
 
-<!-- Menu Lateral -->
+<!-- Menu Lateral Desktop / Gaveta Mobile -->
 <aside class="sidebar" id="sidebarMenu">
     <div class="sidebar-header">
         <div style="width: 100%; overflow: hidden;">
@@ -286,45 +278,54 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
 
     <nav class="sidebar-nav">
         <a href="index.php?page=dashboard" class="nav-link <?= ($page === 'dashboard') ? 'active' : '' ?>">
-            <span class="icon">📊</span>
+            <i data-lucide="layout-dashboard" style="width: 18px; height: 18px;"></i>
             <span>Visão geral</span>
         </a>
         
+        <a href="index.php?page=vendas" class="nav-link <?= ($page === 'vendas') ? 'active' : '' ?>">
+            <i data-lucide="shopping-bag" style="width: 18px; height: 18px;"></i>
+            <span>Vendas</span>
+        </a>
+
         <a href="index.php?page=produtos" class="nav-link <?= ($page === 'produtos') ? 'active' : '' ?>">
-            <span class="icon">📦</span>
+            <i data-lucide="package" style="width: 18px; height: 18px;"></i>
             <span>Produtos</span>
         </a>
         
         <a href="index.php?page=compras" class="nav-link <?= ($page === 'compras') ? 'active' : '' ?>">
-            <span class="icon">🛒</span>
+            <i data-lucide="shopping-cart" style="width: 18px; height: 18px;"></i>
             <span>Compras</span>
         </a>
-        
-        <a href="index.php?page=vendas" class="nav-link <?= ($page === 'vendas') ? 'active' : '' ?>">
-            <span class="icon">💰</span>
-            <span>Vendas</span>
+
+        <a href="index.php?page=a-receber" class="nav-link <?= ($page === 'a-receber') ? 'active' : '' ?>">
+            <i data-lucide="wallet" style="width: 18px; height: 18px;"></i>
+            <span>A Receber</span>
         </a>
         
         <a href="index.php?page=despesas" class="nav-link <?= ($page === 'despesas') ? 'active' : '' ?>">
-            <span class="icon">💸</span>
+            <i data-lucide="trending-down" style="width: 18px; height: 18px;"></i>
             <span>Despesas</span>
         </a>
-
+        
         <div class="nav-divider"></div>
 
         <a href="index.php?page=perfil" class="nav-link <?= ($page === 'perfil') ? 'active' : '' ?>">
-            <span class="icon">⚙️</span>
+            <i data-lucide="settings" style="width: 18px; height: 18px;"></i>
             <span>Minha Conta</span>
         </a>
 
         <a href="logout.php" class="nav-link logout-btn">
-            <span class="icon">🚪</span>
+            <i data-lucide="log-out" style="width: 18px; height: 18px;"></i>
             <span>Sair da conta</span>
         </a>
     </nav>
 </aside>
 
 <script>
+if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+}
+
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebarMenu');
     const backdrop = document.getElementById('sidebarBackdrop');
