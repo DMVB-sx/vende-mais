@@ -156,12 +156,87 @@ try {
 }
 
 $nomeEmpresaAtual = $empresa['nome'] ?? $empresa['nome_fantasia'] ?? $empresa['razao_social'] ?? '';
-
-// 3. Informações do Plano / Assinatura
-$nomePlano = $empresa['plano_nome'] ?? 'Plano Pro';
-$dataExpiracao = !empty($empresa['data_expiracao']) ? $empresa['data_expiracao'] : date('Y-m-d', strtotime('+30 days'));
-$diasRestantes = max(0, (int)ceil((strtotime($dataExpiracao) - time()) / 86400));
 $userIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+
+// 3. Lógica Dinâmica da Assinatura e Planos
+$statusAssinatura = $empresa['status_assinatura'] ?? 'trial';
+$trialExpiraEm    = $empresa['trial_expira_em'] ?? null;
+$dataExpiracao    = $empresa['data_expiracao'] ?? null;
+$planoBanco       = $empresa['plano'] ?? $empresa['plano_nome'] ?? '';
+
+$tituloPlano      = 'Plano Mensal';
+$badgeTexto       = 'Ativo';
+$badgeClasse      = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+$descPlano        = 'Acesso completo a todas as ferramentas operacionais e financeiras.';
+$rotuloVencimento = 'PRÓXIMA RENOVAÇÃO';
+$diasTexto        = '';
+$dataTexto        = '';
+
+if ($statusAssinatura === 'vip') {
+    $tituloPlano      = 'Plano VIP';
+    $badgeTexto       = 'Vitalício';
+    $badgeClasse      = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    $descPlano        = 'Acesso cortesia completo e permanente sem limite de tempo.';
+    $rotuloVencimento = 'VALIDADE DO ACESSO';
+    $diasTexto        = 'Vitalício';
+    $dataTexto        = 'Acesso Permanente';
+} elseif ($statusAssinatura === 'trial') {
+    $tituloPlano      = 'Teste Grátis (7 Dias)';
+    $badgeTexto       = 'Em Avaliação';
+    $badgeClasse      = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    $descPlano        = 'Aproveite todos os recursos liberados durante seu período de teste.';
+    $rotuloVencimento = 'TÉRMINO DO TESTE';
+    
+    if (!empty($trialExpiraEm)) {
+        $dataExpObj = new DateTime($trialExpiraEm);
+        $hojeObj    = new DateTime();
+        $diff       = $hojeObj->diff($dataExpObj);
+        $dias       = (int)$diff->format('%r%a');
+        
+        if ($dataExpObj < $hojeObj) {
+            $diasTexto   = 'Expirado';
+            $badgeTexto  = 'Expirado';
+            $badgeClasse = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+        } elseif ($dias === 0) {
+            $diasTexto   = 'Expira hoje';
+        } elseif ($dias === 1) {
+            $diasTexto   = 'em 1 dia';
+        } else {
+            $diasTexto   = "em {$dias} dias";
+        }
+        $dataTexto = $dataExpObj->format('d/m/Y');
+    } else {
+        $diasTexto = '7 dias';
+        $dataTexto = 'Em andamento';
+    }
+} else { // Ativo (Mensal ou Trimestral)
+    $tituloPlano = !empty($planoBanco) ? 'Plano ' . htmlspecialchars($planoBanco) : 'Plano Mensal';
+    $badgeTexto  = 'Ativo';
+    $badgeClasse = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+    
+    if (!empty($dataExpiracao)) {
+        $dataExpObj = new DateTime($dataExpiracao);
+        $hojeObj    = new DateTime(date('Y-m-d'));
+        $diff       = $hojeObj->diff($dataExpObj);
+        $dias       = (int)$diff->format('%r%a');
+        
+        if ($dataExpObj < $hojeObj) {
+            $diasTexto   = 'Vencido';
+            $badgeTexto  = 'Vencido';
+            $badgeClasse = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+        } elseif ($dias === 0) {
+            $diasTexto   = 'Vence hoje';
+        } elseif ($dias === 1) {
+            $diasTexto   = 'em 1 dia';
+        } else {
+            $diasTexto   = "em {$dias} dias";
+        }
+        $dataTexto = $dataExpObj->format('d/m/Y');
+    } else {
+        $diasTexto = 'Ativo';
+        $dataTexto = '-';
+    }
+}
 ?>
 
 <script src="https://unpkg.com/lucide@latest"></script>
@@ -330,23 +405,25 @@ $userIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
                     </div>
                     <div>
                         <div class="flex items-center gap-2">
-                            <h3 class="text-base sm:text-lg font-bold text-white m-0"><?= htmlspecialchars($nomePlano) ?></h3>
-                            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Ativo
+                            <h3 class="text-base sm:text-lg font-bold text-white m-0"><?= $tituloPlano ?></h3>
+                            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border <?= $badgeClasse ?>">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> <?= $badgeTexto ?>
                             </span>
                         </div>
                         <p class="text-xs text-zinc-400 m-0 mt-1">
-                            Acesso completo a todas as ferramentas operacionais e financeiras.
+                            <?= $descPlano ?>
                         </p>
                     </div>
                 </div>
 
                 <div class="sm:text-right bg-zinc-950/60 sm:bg-transparent p-3.5 sm:p-0 rounded-xl border border-zinc-900 sm:border-0">
-                    <span class="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider block">Próxima Renovação</span>
+                    <span class="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider block">
+                        <?= $rotuloVencimento ?>
+                    </span>
                     <strong class="text-sm font-bold text-zinc-200 mt-0.5 block">
-                        <?= $diasRestantes > 0 ? "em {$diasRestantes} dias" : 'Vence hoje' ?>
+                        <?= $diasTexto ?>
                     </strong>
-                    <span class="text-xs text-zinc-500 block mt-0.5"><?= date('d/m/Y', strtotime($dataExpiracao)) ?></span>
+                    <span class="text-xs text-zinc-500 block mt-0.5"><?= $dataTexto ?></span>
                 </div>
             </div>
 
@@ -364,7 +441,7 @@ $userIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
                     </div>
                     <div class="flex items-center gap-2 bg-[#000000] p-2.5 rounded-xl border border-zinc-900">
                         <i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0"></i>
-                        <span>Relatórios executivos e exportação</span>
+                        <span>Relatórios executivos e lucro real</span>
                     </div>
                     <div class="flex items-center gap-2 bg-[#000000] p-2.5 rounded-xl border border-zinc-900">
                         <i data-lucide="check" class="w-4 h-4 text-emerald-400 shrink-0"></i>
@@ -372,20 +449,6 @@ $userIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- SUPORTE E UPGRADE -->
-        <div class="bg-[#09090b] border border-zinc-800/80 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-                <strong class="text-sm font-semibold text-white block">Precisa alterar ou renovar seu plano?</strong>
-                <span class="text-xs text-zinc-400 block mt-0.5">Fale diretamente com o suporte para upgrades ou dúvidas financeiras.</span>
-            </div>
-
-            <a href="https://wa.me/5575983193550?text=<?= urlencode('Olá! Gostaria de falar sobre o meu plano no Vende+.') ?>" target="_blank"
-               class="inline-flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold rounded-xl px-4 py-2.5 transition no-underline shrink-0">
-                <i data-lucide="message-circle" class="w-4 h-4"></i>
-                <span>Suporte via WhatsApp</span>
-            </a>
         </div>
 
     </div>

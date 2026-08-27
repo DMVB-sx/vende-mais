@@ -311,20 +311,17 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-/* CSS DE EXPORTAÇÃO / IMPRESSÃO EXECUTIVA DARK */
 @media print {
     *, *::before, *::after {
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
         color-adjust: exact !important;
     }
-
     @page {
         margin: 10mm;
         size: A4 portrait;
         background-color: #09090b;
     }
-
     html, body {
         background-color: #09090b !important;
         color: #f4f4f5 !important;
@@ -332,28 +329,23 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
         padding: 0 !important;
         width: 100% !important;
     }
-
     aside, nav, #sidebar, .no-print, form, button, a[href*="vendas"] {
         display: none !important;
     }
-
     main, .main-content {
         padding: 0 !important;
         margin: 0 !important;
         width: 100% !important;
         max-width: 100% !important;
     }
-
     .bg-\[\#09090b\], .bg-\[\#000000\], .bg-zinc-900, .bg-zinc-950 {
         background-color: #121215 !important;
         border: 1px solid #27272a !important;
     }
-
     .grid > div, .card, table, tr {
         break-inside: avoid !important;
         page-break-inside: avoid !important;
     }
-
     .print-header {
         display: flex !important;
     }
@@ -372,9 +364,8 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
     </div>
 </div>
 
-<!-- 1. CABEÇALHO DO DASHBOARD RESPONSIVO (MOBILE-FIRST) -->
+<!-- 1. CABEÇALHO DO DASHBOARD (RESPONSIVO COM EXPORTAR MINIMALISTA NO MOBILE) -->
 <header class="mb-6">
-    <!-- LINHA SUPERIOR: TÍTULO + EXPORTAR MINIMALISTA (MOBILE) -->
     <div class="flex items-center justify-between gap-3 mb-1">
         <div class="flex items-center gap-2.5 min-w-0">
             <div class="p-2 bg-emerald-500/10 rounded-xl border border-emerald-500/20 shrink-0">
@@ -385,20 +376,17 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
             </div>
         </div>
 
-        <!-- EXPORTAR MINIMALISTA APENAS NO MOBILE -->
         <button onclick="window.print()" type="button" title="Exportar Relatório"
                 class="sm:hidden no-print inline-flex items-center justify-center w-10 h-10 bg-[#09090b] hover:bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white rounded-xl transition cursor-pointer shrink-0">
             <i data-lucide="printer" class="w-4 h-4"></i>
         </button>
     </div>
 
-    <!-- SUBTÍTULO + LINHA DE CONTROLES NO DESKTOP -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-1 sm:mt-0">
         <p class="text-xs sm:text-sm text-zinc-400 m-0">
             Exibindo dados de: <strong class="text-zinc-200 font-semibold"><?= htmlspecialchars($titulo_periodo) ?></strong>
         </p>
 
-        <!-- CONTROLES -->
         <div class="flex items-center gap-2.5 w-full sm:w-auto no-print mt-2 sm:mt-0">
             <form method="GET" action="index.php" id="formPeriodo" class="m-0 flex-1 sm:flex-none">
                 <input type="hidden" name="page" value="dashboard">
@@ -416,7 +404,6 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
                     <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-zinc-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
                 </div>
 
-                <!-- DATAS PERSONALIZADAS -->
                 <div id="camposPersonalizados" class="<?= $periodo === 'personalizado' ? 'flex' : 'hidden' ?> items-center gap-1.5 mt-2 sm:mt-0 sm:absolute sm:right-full sm:mr-2">
                     <input type="date" name="data_inicio" value="<?= htmlspecialchars($data_inicio) ?>" 
                            class="flex-1 sm:w-32 bg-[#09090b] border border-zinc-800 text-zinc-200 text-xs rounded-xl px-2.5 py-1.5 outline-none focus:border-emerald-500">
@@ -429,14 +416,12 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
                 </div>
             </form>
 
-            <!-- EXPORTAR COMPLETO NO DESKTOP -->
             <button onclick="window.print()" type="button"
                     class="hidden sm:inline-flex items-center justify-center gap-2 bg-[#09090b] hover:bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs font-semibold rounded-xl px-3.5 py-2.5 transition cursor-pointer shrink-0">
                 <i data-lucide="printer" class="w-3.5 h-3.5"></i>
                 <span>Exportar</span>
             </button>
 
-            <!-- BOTÃO REGISTRAR VENDA -->
             <a href="index.php?page=vendas" 
                class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold rounded-xl px-3.5 sm:px-4 py-2.5 transition shadow-[0_0_20px_rgba(16,185,129,0.15)] whitespace-nowrap no-underline shrink-0">
                 <i data-lucide="plus" class="w-3.5 h-3.5"></i>
@@ -446,13 +431,12 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
     </div>
 </header>
 
-<!-- 2. CARDS PRINCIPAIS DO PERÍODO (5 CARDS PADRONIZADOS) -->
+<!-- 2. CARDS PRINCIPAIS -->
 <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4 mb-6">
-    
     <!-- Faturamento -->
     <div class="bg-[#09090b] p-4 sm:p-5 rounded-2xl border border-zinc-800/80">
         <div class="flex items-center gap-2 mb-3">
-            <div class="p-1.5 bg-blue-500/10 rounded-lg text-blue-400">
+            <div class="p-1.5 bg-zinc-800/80 rounded-lg text-zinc-300">
                 <i data-lucide="line-chart" class="w-3.5 h-3.5"></i>
             </div>
             <span class="text-[11px] font-bold text-zinc-500 uppercase tracking-widest">Faturamento</span>
@@ -490,19 +474,19 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
         <div class="text-xs text-zinc-500 mt-1 font-medium">Produtos + fixos</div>
     </div>
 
-    <!-- Lucro Real -->
-    <div class="bg-[#09090b] p-4 sm:p-5 rounded-2xl border border-zinc-800/80">
+    <!-- Lucro Real (DESTAQUE MÁXIMO) -->
+    <div class="bg-[#09090b] p-4 sm:p-5 rounded-2xl border border-emerald-500/30 shadow-[0_0_25px_rgba(16,185,129,0.06)]">
         <div class="flex items-center gap-2 mb-3">
             <div class="p-1.5 bg-emerald-500/10 rounded-lg text-emerald-400">
                 <i data-lucide="piggy-bank" class="w-3.5 h-3.5"></i>
             </div>
-            <span class="text-[11px] font-bold text-zinc-500 uppercase tracking-widest">Lucro Real</span>
+            <span class="text-[11px] font-bold text-emerald-400 uppercase tracking-widest">Lucro Real</span>
         </div>
         <div class="text-xl sm:text-2xl font-black <?= $classe_lucro ?> tracking-tight truncate">R$ <?= number_format($lucro_real_final, 2, ',', '.') ?></div>
         <div class="text-xs text-zinc-500 mt-1 font-medium">Caixa apurado</div>
     </div>
 
-    <!-- Margem (Card Restaurado) -->
+    <!-- Margem -->
     <div class="bg-[#09090b] p-4 sm:p-5 rounded-2xl border border-zinc-800/80">
         <div class="flex items-center gap-2 mb-3">
             <div class="p-1.5 bg-zinc-800/60 rounded-lg text-zinc-400">
@@ -515,7 +499,7 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
     </div>
 </div>
 
-<!-- 3. ALERTA DE ESTOQUE (SE HOUVER) -->
+<!-- 3. ALERTA DE ESTOQUE -->
 <?php if (count($produtos_estoque_baixo) > 0): ?>
 <div id="alertaEstoque" class="no-print bg-[#09090b] border border-amber-500/30 rounded-2xl p-4 sm:p-5 mb-6" style="display: none;">
     <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
@@ -524,8 +508,8 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
             Estoque Crítico (<?= count($produtos_estoque_baixo) ?> item(ns) com até 3 un.)
         </h3>
         <button onclick="ocultarAlertaEstoque()" class="bg-transparent border-none text-zinc-500 hover:text-zinc-300 text-xs font-medium cursor-pointer">
-    Fechar por agora
-</button>
+            Fechar por agora
+        </button>
     </div>
 
     <div class="flex gap-2.5 overflow-x-auto pb-1 no-scrollbar">
@@ -539,18 +523,18 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
 </div>
 <?php endif; ?>
 
-<!-- 4. GRÁFICO DE EVOLUÇÃO -->
+<!-- 4. GRÁFICO COM HIERARQUIA VISUAL (FATURAMENTO NEUTRO E LUCRO EM ESMERALDA) -->
 <div class="bg-[#09090b] border border-zinc-800/80 rounded-2xl p-4 sm:p-6 mb-6">
     <div class="flex items-center gap-2 mb-4">
-        <div class="p-1.5 bg-blue-500/10 rounded-xl border border-blue-500/20">
-            <i data-lucide="bar-chart-2" class="w-4 h-4 text-blue-400"></i>
+        <div class="p-1.5 bg-zinc-800/80 rounded-xl border border-zinc-700/50">
+            <i data-lucide="bar-chart-2" class="w-4 h-4 text-zinc-300"></i>
         </div>
         <div>
             <h3 class="text-sm sm:text-base font-bold text-white m-0">
                 <?= htmlspecialchars($titulo_grafico) ?>
             </h3>
             <p class="text-xs text-zinc-500 m-0">
-                Comparativo entre faturamento bruto e lucro líquido
+                Comparativo entre faturamento bruto e lucro líquido real
             </p>
         </div>
     </div>
@@ -598,7 +582,7 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
     </div>
 </div>
 
-<!-- 6. VENDAS RECENTES -->
+<!-- 6. VENDAS RECENTES COM RÓTULO CLARO -->
 <div class="bg-[#09090b] border border-zinc-800/80 rounded-2xl p-4 sm:p-6">
     <div class="flex items-center justify-between gap-4 mb-4">
         <div class="flex items-center gap-2">
@@ -626,7 +610,6 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
                 $isPrazo = ($totalParcelas > 0 || in_array(strtolower(trim((string)$v['forma_pagamento'])), ['prazo', 'a_prazo', 'fiado', 'a prazo']));
             ?>
                 <div class="bg-[#000000] border border-zinc-800/80 hover:border-zinc-700 rounded-xl p-3 sm:p-3.5 flex items-center justify-between gap-3 transition">
-                    
                     <div class="flex items-center gap-3 min-w-0 flex-1">
                         <div class="p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 shrink-0">
                             <i data-lucide="shopping-bag" class="w-4 h-4 text-emerald-400"></i>
@@ -643,7 +626,6 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
                             <div class="flex items-center gap-1.5 mt-0.5 text-xs text-zinc-500">
                                 <span><?= !empty($v['data_venda']) ? date('d/m/Y', strtotime($v['data_venda'])) : '—' ?></span>
                                 <span>•</span>
-                                
                                 <?php if ($isPrazo): ?>
                                     <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 truncate">
                                         <?= formatarPagamentoDashboard($v['forma_pagamento'], $totalParcelas) ?>
@@ -657,6 +639,7 @@ function formatarPagamentoDashboard($pagamento, $totalParcelas = 0) {
                         </div>
                     </div>
 
+                    <!-- RÓTULOS EXPLÍCITOS -->
                     <div class="flex items-center gap-3 shrink-0 ml-2">
                         <div class="text-right">
                             <span class="text-[10px] text-zinc-500 block">Total</span>
@@ -688,18 +671,21 @@ document.addEventListener("DOMContentLoaded", function () {
         lucide.createIcons();
     }
 
-    const ocultarPermanente = localStorage.getItem("vende_ocultar_alerta_estoque");
+    const desativadoGeral = localStorage.getItem("vende_ocultar_alerta_estoque") === "true";
+    const fechadoNestaSessao = sessionStorage.getItem("vende_fechou_alerta_temp") === "true";
     const alertaBox = document.getElementById("alertaEstoque");
 
-    if (alertaBox && ocultarPermanente !== "true") {
+    if (alertaBox && !desativadoGeral && !fechadoNestaSessao) {
         alertaBox.style.display = "block";
     }
 });
 
-function ocultarAlertaEstoque(permanente) {
+function ocultarAlertaEstoque() {
     const alertaBox = document.getElementById("alertaEstoque");
-    if (alertaBox) alertaBox.style.display = "none";
-    if (permanente) localStorage.setItem("vende_ocultar_alerta_estoque", "true");
+    if (alertaBox) {
+        alertaBox.style.display = "none";
+        sessionStorage.setItem("vende_fechou_alerta_temp", "true");
+    }
 }
 
 function tratarTrocaPeriodo(valor) {
@@ -716,7 +702,7 @@ function tratarTrocaPeriodo(valor) {
 
 /*
 |--------------------------------------------------------------------------
-| CHART.JS CONFIGURAÇÃO
+| CHART.JS CONFIGURAÇÃO: FATURAMENTO GRAFITE (#3f3f46) + LUCRO ESMERALDA (#10b981)
 |--------------------------------------------------------------------------
 */
 Chart.defaults.color = '#71717a';
@@ -733,18 +719,20 @@ if (canvasFluxo) {
             labels: <?= json_encode($labelsGrafico, JSON_UNESCAPED_UNICODE) ?>,
             datasets: [
                 {
-                    label: 'Faturamento',
+                    label: 'Faturamento (Volume)',
                     data: <?= json_encode($fatGrafico) ?>,
-                    backgroundColor: '#3b82f6',
+                    backgroundColor: '#3f3f46',
+                    hoverBackgroundColor: '#52525b',
                     borderRadius: 6,
                     maxBarThickness: 32,
                     barPercentage: 0.5,
                     categoryPercentage: 0.5
                 },
                 {
-                    label: 'Lucro Líquido',
+                    label: 'Lucro Líquido Real',
                     data: <?= json_encode($lucroGrafico) ?>,
                     backgroundColor: '#10b981',
+                    hoverBackgroundColor: '#34d399',
                     borderRadius: 6,
                     maxBarThickness: 32,
                     barPercentage: 0.5,

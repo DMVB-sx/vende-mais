@@ -1,64 +1,49 @@
 <?php
-
 $mensagem = '';
 $empresa_id = $_SESSION['empresa_id'] ?? 0;
+
+/*
+|--------------------------------------------------------------------------
+| FUNÇÃO AUXILIAR: TRATAMENTO DE VALORES MONETÁRIOS
+|--------------------------------------------------------------------------
+*/
+function converterMoedaParaFloat($valor) {
+    if (empty($valor)) return 0.0;
+    $v = trim((string)$valor);
+    if (strpos($v, ',') !== false) {
+        $v = str_replace('.', '', $v);
+        $v = str_replace(',', '.', $v);
+    }
+    return (float)$v;
+}
 
 /*
 |--------------------------------------------------------------------------
 | 1. CANCELAR VENDA
 |--------------------------------------------------------------------------
 */
-
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST' &&
-    isset($_POST['cancelar_venda'])
-) {
-
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancelar_venda'])) {
     try {
-
-        if (function_exists('validar_csrf')) {
-            validar_csrf();
-        }
+        if (function_exists('validar_csrf')) validar_csrf();
 
         $id_venda = (int)($_POST['id_venda'] ?? 0);
+        if ($id_venda <= 0) throw new Exception('Venda inválida.');
 
-        if ($id_venda <= 0) {
-            throw new Exception('Venda inválida.');
-        }
-
-        $stmtVenda = $pdo->prepare("
-            SELECT id, produto_id, quantidade
-            FROM vendas
-            WHERE id = ? AND empresa_id = ?
-            LIMIT 1
-        ");
-
+        $stmtVenda = $pdo->prepare("SELECT id, produto_id, quantidade FROM vendas WHERE id = ? AND empresa_id = ? LIMIT 1");
         $stmtVenda->execute([$id_venda, $empresa_id]);
         $venda = $stmtVenda->fetch(PDO::FETCH_ASSOC);
 
-        if (!$venda) {
-            throw new Exception('Venda não encontrada.');
-        }
+        if (!$venda) throw new Exception('Venda não encontrada.');
 
         $pdo->beginTransaction();
 
-        $stmtEstoque = $pdo->prepare("
-            UPDATE produtos
-            SET estoque = estoque + ?
-            WHERE id = ? AND empresa_id = ?
-        ");
+        $stmtEstoque = $pdo->prepare("UPDATE produtos SET estoque = estoque + ? WHERE id = ? AND empresa_id = ?");
         $stmtEstoque->execute([(int)$venda['quantidade'], (int)$venda['produto_id'], $empresa_id]);
 
-        $stmtDelConta = $pdo->prepare("
-            DELETE FROM contas_receber 
-            WHERE venda_id = ? AND empresa_id = ?
-        ");
+        $stmtDelConta = $pdo->prepare("DELETE FROM contas_receber WHERE venda_id = ? AND empresa_id = ?");
         $stmtDelConta->execute([$id_venda, $empresa_id]);
 
-        $stmtExcluir = $pdo->prepare("
-            DELETE FROM vendas
-            WHERE id = ? AND empresa_id = ?
-        ");
+        $stmtExcluir = $pdo->prepare("DELETE FROM vendas WHERE id = ? AND empresa_id = ?");
         $stmtExcluir->execute([$id_venda, $empresa_id]);
 
         $pdo->commit();
@@ -72,18 +57,22 @@ if (
                 </div>
             </div>
         ';
-
-    } catch (Throwable $e) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
-        error_log('Erro ao cancelar venda: ' . $e->getMessage());
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log("Erro no banco ao cancelar venda: " . $e->getMessage());
         $mensagem = '
             <div class="flex items-start gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-6 text-sm">
                 <i data-lucide="alert-circle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
-                <div>
-                    <strong class="font-semibold block text-rose-300">Não foi possível cancelar a venda.</strong>
-                </div>
+                <div><strong class="font-semibold block text-rose-300">Ocorreu um erro interno ao cancelar a venda.</strong></div>
+            </div>
+        ';
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log("Erro ao cancelar venda: " . $e->getMessage());
+        $mensagem = '
+            <div class="flex items-start gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-6 text-sm">
+                <i data-lucide="alert-circle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
+                <div><strong class="font-semibold block text-rose-300">' . htmlspecialchars($e->getMessage()) . '</strong></div>
             </div>
         ';
     }
@@ -94,75 +83,44 @@ if (
 | 2. CADASTRAR OU EDITAR VENDA
 |--------------------------------------------------------------------------
 */
-
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST' &&
-    isset($_POST['salvar_venda'])
-) {
-
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['salvar_venda'])) {
     try {
-
-        if (function_exists('validar_csrf')) {
-            validar_csrf();
-        }
+        if (function_exists('validar_csrf')) validar_csrf();
 
         $id_venda = (int)($_POST['id_venda'] ?? 0);
         $produto_id = (int)($_POST['produto_id'] ?? 0);
         $canal = trim($_POST['canal'] ?? '');
         $forma_pagamento = trim($_POST['forma_pagamento'] ?? 'pix');
         $quantidade = (int)($_POST['quantidade'] ?? 0);
-        $preco_venda = (float)str_replace(',', '.', trim($_POST['preco_venda'] ?? '0'));
-        $taxas_e_frete = (float)str_replace(',', '.', trim($_POST['taxas_e_frete'] ?? '0'));
+        $preco_venda = converterMoedaParaFloat($_POST['preco_venda'] ?? '0');
+        $taxas_e_frete = converterMoedaParaFloat($_POST['taxas_e_frete'] ?? '0');
 
         $cliente_nome = trim($_POST['cliente_nome'] ?? '');
         $cliente_telefone = trim($_POST['cliente_telefone'] ?? '');
         $data_vencimento = trim($_POST['data_vencimento'] ?? '');
         $num_parcelas = max(1, (int)($_POST['num_parcelas'] ?? 1));
-        $valor_entrada = (float)str_replace(['.', ','], ['', '.'], $_POST['valor_entrada'] ?? '0');
+        $valor_entrada = converterMoedaParaFloat($_POST['valor_entrada'] ?? '0');
 
-        if ($produto_id <= 0) {
-            throw new Exception('Selecione um produto.');
-        }
-
-        if ($quantidade <= 0) {
-            throw new Exception('A quantidade deve ser maior que zero.');
-        }
-
-        if ($preco_venda < 0) {
-            throw new Exception('Preço de venda inválido.');
-        }
+        if ($produto_id <= 0) throw new Exception('Selecione um produto.');
+        if ($quantidade <= 0) throw new Exception('A quantidade deve ser maior que zero.');
+        if ($preco_venda < 0) throw new Exception('Preço de venda inválido.');
 
         $valor_total = $preco_venda * $quantidade;
 
         if ($forma_pagamento === 'prazo') {
-            if (empty($cliente_nome)) {
-                throw new Exception('Informe o nome do cliente para vendas a prazo.');
-            }
-            if (empty($data_vencimento)) {
-                throw new Exception('Informe a data do 1º vencimento.');
-            }
+            if (empty($cliente_nome)) throw new Exception('Informe o nome do cliente para vendas a prazo.');
+            if (empty($data_vencimento)) throw new Exception('Informe a data do 1º vencimento.');
             if ($valor_entrada < 0 || $valor_entrada > $valor_total) {
                 throw new Exception('O valor de entrada não pode ser negativo nem superior ao total da venda.');
             }
         }
 
         if ($id_venda > 0) {
-
             $stmtVendaOld = $pdo->prepare("SELECT * FROM vendas WHERE id = ? AND empresa_id = ? LIMIT 1");
             $stmtVendaOld->execute([$id_venda, $empresa_id]);
             $vendaAntiga = $stmtVendaOld->fetch(PDO::FETCH_ASSOC);
 
-            if (!$vendaAntiga) {
-                throw new Exception('Venda não encontrada.');
-            }
-
-            $stmtProdutoNovo = $pdo->prepare("SELECT id, nome, preco_custo, estoque FROM produtos WHERE id = ? AND empresa_id = ? AND ativo = TRUE LIMIT 1");
-            $stmtProdutoNovo->execute([$produto_id, $empresa_id]);
-            $produtoNovo = $stmtProdutoNovo->fetch(PDO::FETCH_ASSOC);
-
-            if (!$produtoNovo) {
-                throw new Exception('Produto não encontrado.');
-            }
+            if (!$vendaAntiga) throw new Exception('Venda não encontrada.');
 
             $pdo->beginTransaction();
 
@@ -173,8 +131,9 @@ if (
             $stmtProdutoAtualizado->execute([$produto_id, $empresa_id]);
             $produtoAtualizado = $stmtProdutoAtualizado->fetch(PDO::FETCH_ASSOC);
 
+            if (!$produtoAtualizado) throw new Exception('Produto não encontrado.');
             if ((int)$produtoAtualizado['estoque'] < $quantidade) {
-                throw new Exception('Estoque insuficiente! Disponível: ' . $produtoAtualizado['estoque'] . ' un.');
+                throw new Exception('Estoque insuficiente! Disponível: ' . (int)$produtoAtualizado['estoque'] . ' un.');
             }
 
             $custo_unitario = (float)$produtoAtualizado['preco_custo'];
@@ -202,7 +161,6 @@ if (
 
             if ($forma_pagamento === 'prazo') {
                 $saldo_parcelar = max(0, $valor_total - $valor_entrada);
-
                 if ($saldo_parcelar > 0) {
                     $valor_cada_parcela = round($saldo_parcelar / $num_parcelas, 2);
                     $diferenca_centavos = $saldo_parcelar - ($valor_cada_parcela * $num_parcelas);
@@ -228,21 +186,15 @@ if (
             $mensagem = '
                 <div class="flex items-start gap-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl mb-6 text-sm">
                     <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5"></i>
-                    <div>
-                        <strong class="font-semibold block text-emerald-300">Venda atualizada com sucesso!</strong>
-                    </div>
+                    <div><strong class="font-semibold block text-emerald-300">Venda atualizada com sucesso!</strong></div>
                 </div>
             ';
         } else {
-
             $stmtProduto = $pdo->prepare("SELECT id, preco_custo, estoque FROM produtos WHERE id = ? AND empresa_id = ? AND ativo = TRUE LIMIT 1");
             $stmtProduto->execute([$produto_id, $empresa_id]);
             $produto = $stmtProduto->fetch(PDO::FETCH_ASSOC);
 
-            if (!$produto) {
-                throw new Exception('Produto não encontrado ou inativo.');
-            }
-
+            if (!$produto) throw new Exception('Produto não encontrado ou inativo.');
             if ((int)$produto['estoque'] < $quantidade) {
                 throw new Exception('Estoque insuficiente! Disponível: ' . (int)$produto['estoque'] . ' un.');
             }
@@ -271,7 +223,6 @@ if (
 
             if ($forma_pagamento === 'prazo') {
                 $saldo_parcelar = max(0, $valor_total - $valor_entrada);
-
                 if ($saldo_parcelar > 0) {
                     $valor_cada_parcela = round($saldo_parcelar / $num_parcelas, 2);
                     $diferenca_centavos = $saldo_parcelar - ($valor_cada_parcela * $num_parcelas);
@@ -295,30 +246,32 @@ if (
 
             $pdo->commit();
 
-            $msgParcelas = ($forma_pagamento === 'prazo' && $num_parcelas > 1) ? " ({$num_parcelas} parcelas geradas em A Receber)" : "";
-
             $mensagem = '
                 <div class="flex items-start gap-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl mb-6 text-sm">
                     <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5"></i>
                     <div>
-                        <strong class="font-semibold block text-emerald-300">Venda registrada com sucesso!' . $msgParcelas . '</strong>
-                        <span class="text-xs text-emerald-400/80">Lucro computado no caixa: R$ ' . number_format($lucro_liquido, 2, ',', '.') . '</span>
+                        <strong class="font-semibold block text-emerald-300">Venda registrada com sucesso!</strong>
+                        <span class="text-xs text-emerald-400/80">Lucro apurado: R$ ' . number_format($lucro_liquido, 2, ',', '.') . '</span>
                     </div>
                 </div>
             ';
         }
-
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log("Erro no banco ao salvar venda: " . $e->getMessage());
+        $mensagem = '
+            <div class="flex items-start gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-6 text-sm">
+                <i data-lucide="alert-circle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
+                <div><strong class="font-semibold block text-rose-300">Ocorreu um erro interno ao processar a venda.</strong></div>
+            </div>
+        ';
     } catch (Throwable $e) {
-        if ($pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
-        error_log('Erro ao salvar venda: ' . $e->getMessage());
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log("Erro ao salvar venda: " . $e->getMessage());
         $mensagem = '
             <div class="flex items-start gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl mb-6 text-sm">
                 <i data-lucide="alert-triangle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
-                <div>
-                    <strong class="font-semibold block text-rose-300">Não foi possível salvar a venda. Tente novamente.</strong>
-                </div>
+                <div><strong class="font-semibold block text-rose-300">' . htmlspecialchars($e->getMessage()) . '</strong></div>
             </div>
         ';
     }
@@ -326,10 +279,9 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| 3. BUSCAR VENDA PARA EDIÇÃO COMPLETA
+| 3. BUSCAR VENDA PARA EDIÇÃO
 |--------------------------------------------------------------------------
 */
-
 $venda_editar = null;
 $conta_vinculada = null;
 $total_parcelas_existentes = 1;
@@ -366,7 +318,6 @@ if (isset($_GET['acao']) && $_GET['acao'] === 'editar' && isset($_GET['id'])) {
 | 4. PRODUTOS & HISTÓRICO
 |--------------------------------------------------------------------------
 */
-
 $stmtProd = $pdo->prepare("SELECT id, nome, fornecedor, preco_venda, preco_custo, estoque FROM produtos WHERE empresa_id = ? AND ativo = TRUE ORDER BY estoque DESC, nome ASC");
 $stmtProd->execute([$empresa_id]);
 $produtos = $stmtProd->fetchAll(PDO::FETCH_ASSOC);
@@ -427,11 +378,7 @@ $total_vendas = (int)$stmtTotais->fetchColumn();
 $por_pagina = 15;
 $pagina_atual = max(1, (int)($_GET['pagina'] ?? 1));
 $total_paginas = max(1, (int)ceil($total_vendas / $por_pagina));
-
-if ($pagina_atual > $total_paginas) {
-    $pagina_atual = $total_paginas;
-}
-
+if ($pagina_atual > $total_paginas) $pagina_atual = $total_paginas;
 $offset = ($pagina_atual - 1) * $por_pagina;
 
 $stmtVendas = $pdo->prepare("
@@ -479,20 +426,9 @@ if ($venda_editar) {
             break;
         }
     }
-    if (empty($produtoSelecionadoNome)) {
-        $stmtPDel = $pdo->prepare("SELECT nome, estoque, preco_custo FROM produtos WHERE id = ? AND empresa_id = ? LIMIT 1");
-        $stmtPDel->execute([(int)$venda_editar['produto_id'], $empresa_id]);
-        $pDel = $stmtPDel->fetch(PDO::FETCH_ASSOC);
-        if ($pDel) {
-            $produtoSelecionadoNome = $pDel['nome'];
-            $produto_selecionado_estoque_max = (int)$pDel['estoque'] + (int)$venda_editar['quantidade'];
-            $produto_selecionado_custo = (float)$pDel['preco_custo'];
-        }
-    }
 }
 
 $temFiltroAtivo = (!empty($busca_venda) || !empty($pagamento_filtro) || ($periodo !== 'todos'));
-
 $queryFiltros = http_build_query([
     'page' => 'vendas',
     'busca_venda' => $busca_venda,
@@ -741,15 +677,15 @@ $queryFiltros = http_build_query([
 
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Preço Un. (R$) *</label>
-                <input type="number" step="0.01" min="0" name="preco_venda" id="venda_preco" required placeholder="0.00"
-                       value="<?= $venda_editar ? number_format((float)$venda_editar['preco_venda'], 2, '.', '') : '' ?>"
+                <input type="text" name="preco_venda" id="venda_preco" required placeholder="0,00"
+                       value="<?= $venda_editar ? number_format((float)$venda_editar['preco_venda'], 2, ',', '.') : '' ?>"
                        class="w-full bg-[#000000] border border-zinc-800 text-zinc-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-emerald-500 transition-colors">
             </div>
 
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Taxas/Frete (R$)</label>
-                <input type="number" step="0.01" min="0" name="taxas_e_frete" id="venda_taxas" placeholder="0.00"
-                       value="<?= $venda_editar ? number_format((float)$venda_editar['taxas_e_frete'], 2, '.', '') : '0.00' ?>"
+                <input type="text" name="taxas_e_frete" id="venda_taxas" placeholder="0,00"
+                       value="<?= $venda_editar ? number_format((float)$venda_editar['taxas_e_frete'], 2, ',', '.') : '0,00' ?>"
                        class="w-full bg-[#000000] border border-zinc-800 text-zinc-200 text-sm rounded-xl px-3.5 py-2.5 outline-none focus:border-emerald-500 transition-colors">
             </div>
         </div>
@@ -766,7 +702,7 @@ $queryFiltros = http_build_query([
             </div>
         </div>
 
-        <!-- BOTÕES DE AÇÃO -->
+        <!-- BOTÕES DE AÇÃO: CTA PRINCIPAL ESMERALDA -->
         <div class="flex items-center gap-3 pt-2">
             <button type="submit" name="salvar_venda"
                     class="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-bold rounded-xl px-6 py-3 transition-all shadow-[0_0_20px_rgba(16,185,129,0.15)] cursor-pointer">
@@ -786,8 +722,6 @@ $queryFiltros = http_build_query([
 
 <!-- HISTÓRICO DE VENDAS -->
 <div class="bg-[#09090b] border border-zinc-800/80 rounded-2xl p-4 sm:p-6">
-    
-    <!-- HEADER: TÍTULO, CONTADOR, BUSCA E FILTRO -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-5 border-b border-zinc-900">
         <div class="flex items-center gap-2.5">
             <div class="p-1.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
@@ -890,7 +824,7 @@ $queryFiltros = http_build_query([
         </div>
     </div>
 
-    <!-- LISTA DE CARDS INTERATIVOS (LAYOUT SEM SOBREPOSIÇÃO) -->
+    <!-- LISTA DE CARDS INTERATIVOS COM RÓTULO DE LUCRO EXPLÍCITO -->
     <?php if (count($historico_vendas) > 0): ?>
         <div class="space-y-3">
             <?php foreach ($historico_vendas as $v): 
@@ -901,11 +835,8 @@ $queryFiltros = http_build_query([
                 $isPrazo = ($totalParcelas > 0 || in_array(strtolower(trim((string)$v['forma_pagamento'])), ['prazo', 'a_prazo', 'fiado', 'a prazo']));
             ?>
                 <div class="venda-card bg-[#000000] border border-zinc-800/80 rounded-2xl overflow-hidden transition hover:border-zinc-700" id="venda-card-<?= (int)$v['id'] ?>">
-                    
-                    <!-- LINHA RESUMO PRINCIPAL -->
                     <button type="button" class="w-full flex items-start sm:items-center justify-between gap-3 p-3.5 sm:p-4 bg-transparent border-none text-left cursor-pointer transition hover:bg-zinc-900/40" onclick="toggleVendaCard(<?= (int)$v['id'] ?>)">
                         
-                        <!-- LADO ESQUERDO -->
                         <div class="flex items-start sm:items-center gap-3 min-w-0 flex-1">
                             <div class="p-2 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 shrink-0 mt-0.5 sm:mt-0">
                                 <i data-lucide="shopping-bag" class="w-4 h-4 text-emerald-400"></i>
@@ -935,15 +866,15 @@ $queryFiltros = http_build_query([
                             </div>
                         </div>
 
-                        <!-- LADO DIREITO (VALORES EM COLUNA SEM SOBREPOSIÇÃO) -->
+                        <!-- VALORES COM RÓTULO CLARO E EXPLÍCITO -->
                         <div class="flex items-center gap-3 shrink-0 ml-2">
                             <div class="text-right">
                                 <span class="text-[10px] text-zinc-500 uppercase tracking-wider block">Total</span>
                                 <strong class="text-sm font-bold text-white block whitespace-nowrap">
                                     R$ <?= number_format($totalV, 2, ',', '.') ?>
                                 </strong>
-                                <span class="text-xs font-semibold <?= $lucroV > 0 ? 'text-emerald-400' : 'text-zinc-500' ?> block whitespace-nowrap mt-0.5">
-                                    +R$ <?= number_format($lucroV, 2, ',', '.') ?>
+                                <span class="text-[11px] font-semibold <?= $lucroV > 0 ? 'text-emerald-400' : 'text-zinc-500' ?> block whitespace-nowrap mt-0.5">
+                                    Lucro: R$ <?= number_format($lucroV, 2, ',', '.') ?>
                                 </span>
                             </div>
 
@@ -1115,17 +1046,6 @@ function confirmarCancelamento() {
     if (form) form.submit();
 }
 
-const modalCancelamento = document.getElementById('modal-cancelamento');
-if (modalCancelamento) {
-    modalCancelamento.addEventListener('click', function(event) {
-        if (event.target === this) fecharModalCancelamento();
-    });
-}
-
-document.addEventListener('keydown', function(event) {
-    if (event.key === 'Escape' && vendaParaCancelar) fecharModalCancelamento();
-});
-
 function toggleCamposPrazo() {
     const selectPagto = document.getElementById('forma_pagamento');
     const container = document.getElementById('campos_prazo_container');
@@ -1194,6 +1114,15 @@ function filtrarItensProdutos() {
     });
 }
 
+function converterTextoMoeda(val) {
+    if (!val) return 0;
+    let s = String(val).trim();
+    if (s.indexOf(',') !== -1) {
+        s = s.replace(/\./g, '').replace(',', '.');
+    }
+    return parseFloat(s) || 0;
+}
+
 function atualizarPreviewCalculo() {
     const campoQtd = document.getElementById('venda_qtd');
     const campoPreco = document.getElementById('venda_preco');
@@ -1201,8 +1130,8 @@ function atualizarPreviewCalculo() {
     const custoHidden = document.getElementById('produto_custo_hidden');
 
     const qtd = parseInt(campoQtd ? campoQtd.value : 1) || 0;
-    const preco = parseFloat(campoPreco ? campoPreco.value : 0) || 0;
-    const taxas = parseFloat(campoTaxas ? campoTaxas.value : 0) || 0;
+    const preco = converterTextoMoeda(campoPreco ? campoPreco.value : 0);
+    const taxas = converterTextoMoeda(campoTaxas ? campoTaxas.value : 0);
     const custoUn = parseFloat(custoHidden ? custoHidden.value : 0) || 0;
 
     const total = (qtd * preco);
@@ -1307,14 +1236,11 @@ document.addEventListener('DOMContentLoaded', function() {
     itens.forEach(item => {
         item.addEventListener('click', () => {
             const estoque = parseInt(item.getAttribute('data-estoque')) || 0;
-            
-            if (estoque <= 0) {
-                return;
-            }
+            if (estoque <= 0) return;
 
             const id = item.getAttribute('data-id');
             const nome = item.getAttribute('data-nome');
-            const preco = item.getAttribute('data-preco');
+            const preco = parseFloat(item.getAttribute('data-preco')) || 0;
             const custo = item.getAttribute('data-custo');
 
             hiddenId.value = id;
@@ -1335,8 +1261,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
             atualizarEstadoIcones(true);
 
-            if (campoPreco && (!campoPreco.value || campoPreco.value === '0.00' || campoPreco.value === '0')) {
-                campoPreco.value = parseFloat(preco).toFixed(2);
+            if (campoPreco && (!campoPreco.value || campoPreco.value === '0,00' || campoPreco.value === '0.00' || campoPreco.value === '0')) {
+                campoPreco.value = preco.toFixed(2).replace('.', ',');
             }
 
             dropdown.classList.add('hidden');
