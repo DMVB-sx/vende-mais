@@ -136,7 +136,19 @@ if ($bloqueado) {
         <meta charset="UTF-8">
         <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+        <!-- Manifesto para PWA / Instalação -->
+        <link rel="manifest" href="/manifest.json">
+        <meta name="theme-color" content="#09090b">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <meta name="apple-mobile-web-app-title" content="Vende+">
+        <link rel="apple-touch-icon" href="/assets/img/icon-192.png">
+
+        <!-- Favicon -->
         <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
+
         <title><?= $tituloBloqueio ?> | Vende+</title>
         <script src="https://cdn.tailwindcss.com"></script>
     </head>

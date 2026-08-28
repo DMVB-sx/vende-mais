@@ -16,6 +16,7 @@ if (isset($_SESSION['usuario_id']) && !empty($_SESSION['usuario_id'])) {
 
 $erro = '';
 $sucesso = '';
+$email_pendente = null;
 
 // Captura mensagens via GET
 if (isset($_GET['msg'])) {
@@ -23,6 +24,20 @@ if (isset($_GET['msg'])) {
         $sucesso = "Cadastro realizado! Enviamos um link de confirmação para o seu e-mail. Por favor, valide sua conta antes de entrar.";
     } elseif ($_GET['msg'] === 'email_confirmado') {
         $sucesso = "E-mail confirmado com sucesso! Você já pode entrar.";
+    } elseif ($_GET['msg'] === 'email_reenviado_pendente' || $_GET['msg'] === 'reenvio_sucesso') {
+        $sucesso = "Enviamos um novo link de confirmação para seu e-mail. Verifique a caixa de entrada ou spam!";
+    } elseif ($_GET['msg'] === 'email_ja_verificado') {
+        $sucesso = "Seu e-mail já foi verificado anteriormente. Pode acessar sua conta normalmente.";
+    }
+}
+
+if (isset($_GET['erro'])) {
+    if ($_GET['erro'] === 'token_expirado') {
+        $erro = "O link de confirmação expirou. Faça login ou solicite um novo envio abaixo.";
+    } elseif ($_GET['erro'] === 'token_invalido') {
+        $erro = "Link de confirmação inválido.";
+    } elseif ($_GET['erro'] === 'email_nao_encontrado') {
+        $erro = "E-mail não encontrado em nossa base.";
     }
 }
 
@@ -48,7 +63,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($usuario && password_verify($senha, $usuario['senha'])) {
                 // VERIFICA SE O E-MAIL FOI CONFIRMADO
                 if (isset($usuario['email_verificado']) && (int)$usuario['email_verificado'] === 0) {
-                    $erro = "Sua conta ainda não foi ativada. Verifique a caixa de entrada (ou spam) do seu e-mail e clique no link de confirmação.";
+                    $email_pendente = $usuario['email'];
+                    $erro = "Sua conta ainda não foi ativada. Verifique sua caixa de entrada/spam ou clique abaixo para reenviar.";
                 } else {
                     $_SESSION['usuario_id'] = $usuario['id'];
                     $_SESSION['empresa_id'] = $usuario['empresa_id'];
@@ -298,6 +314,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border: 1px solid rgba(16, 185, 129, 0.25);
             color: #34d399;
         }
+
+        .resend-box {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-resend {
+            background: none;
+            border: none;
+            color: #10b981;
+            font-weight: 700;
+            text-decoration: underline;
+            cursor: pointer;
+            padding: 0;
+            font-size: 12px;
+        }
+
+        .btn-resend:hover {
+            color: #34d399;
+        }
     </style>
 </head>
 <body>
@@ -305,17 +342,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <div class="auth-container">
     <div class="auth-card">
         <!-- LOGO BRAND -->
-<div class="brand-header">
-    <a href="landing.php" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:10px;">
-        <svg width="30" height="30" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
-            <rect width="64" height="64" rx="16" fill="#09090b"/>
-            <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M52 32 L52 44 M46 38 L58 38" stroke="#10b981" stroke-width="5.5" stroke-linecap="round"/>
-        </svg>
-        <h1 class="logo-text">vende<span>+</span></h1>
-    </a>
-    <p class="brand-subtitle">Entre para gerenciar seu negócio</p>
-</div>
+        <div class="brand-header">
+            <a href="landing.php" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:10px;">
+                <svg width="30" height="30" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+                    <rect width="64" height="64" rx="16" fill="#09090b"/>
+                    <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M52 32 L52 44 M46 38 L58 38" stroke="#10b981" stroke-width="5.5" stroke-linecap="round"/>
+                </svg>
+                <h1 class="logo-text">vende<span>+</span></h1>
+            </a>
+            <p class="brand-subtitle">Entre para gerenciar seu negócio</p>
+        </div>
 
         <!-- MENSAGENS -->
         <?php if (!empty($sucesso)): ?>
@@ -326,9 +363,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <?php if (!empty($erro)): ?>
-            <div class="alert alert-error">
-                <i data-lucide="alert-triangle" style="width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px;"></i>
-                <div><?= htmlspecialchars($erro) ?></div>
+            <div class="alert alert-error" style="flex-direction: column;">
+                <div style="display: flex; gap: 10px; align-items: flex-start;">
+                    <i data-lucide="alert-triangle" style="width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px;"></i>
+                    <div><?= htmlspecialchars($erro) ?></div>
+                </div>
+
+                <?php if (!empty($email_pendente)): ?>
+                    <div class="resend-box" style="width: 100%;">
+                        <form method="POST" action="reenviar_confirmacao.php">
+                            <input type="hidden" name="email" value="<?= htmlspecialchars($email_pendente) ?>">
+                            <button type="submit" class="btn-resend">
+                                Reenviar e-mail de ativação agora →
+                            </button>
+                        </form>
+                    </div>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
 

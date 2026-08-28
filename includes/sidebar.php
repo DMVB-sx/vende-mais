@@ -281,17 +281,17 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
             <i data-lucide="layout-dashboard" style="width: 18px; height: 18px;"></i>
             <span>Visão geral</span>
         </a>
-        
-        <a href="index.php?page=vendas" class="nav-link <?= ($page === 'vendas') ? 'active' : '' ?>">
-            <i data-lucide="shopping-bag" style="width: 18px; height: 18px;"></i>
-            <span>Vendas</span>
-        </a>
 
         <a href="index.php?page=produtos" class="nav-link <?= ($page === 'produtos') ? 'active' : '' ?>">
             <i data-lucide="package" style="width: 18px; height: 18px;"></i>
             <span>Produtos</span>
         </a>
         
+        <a href="index.php?page=vendas" class="nav-link <?= ($page === 'vendas') ? 'active' : '' ?>">
+            <i data-lucide="shopping-bag" style="width: 18px; height: 18px;"></i>
+            <span>Vendas</span>
+        </a>
+
         <a href="index.php?page=compras" class="nav-link <?= ($page === 'compras') ? 'active' : '' ?>">
             <i data-lucide="shopping-cart" style="width: 18px; height: 18px;"></i>
             <span>Compras</span>

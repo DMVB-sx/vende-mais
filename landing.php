@@ -77,6 +77,20 @@ if (isset($_SESSION['usuario_id']) && !empty($_SESSION['usuario_id'])) {
         }
     </style>
 </head>
+<!-- Ícone Oficial para iPhone e iPad (iOS) -->
+<link rel="apple-touch-icon" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+
+<!-- Favicon padrão e PWA -->
+<link rel="icon" type="image/png" sizes="180x180" href="/assets/img/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+
+<!-- Configurações de exibição no iOS -->
+<meta name="apple-mobile-web-app-title" content="Vende+">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#09090b">
+
 <body class="bg-dark-950 text-slate-100 font-sans antialiased selection:bg-emerald-500 selection:text-black overflow-x-hidden">
 
     <!-- BACKGROUND GRID SUTIL -->

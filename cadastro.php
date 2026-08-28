@@ -36,12 +36,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $erro = "A senha e a confirmação de senha não coincidem.";
         } else {
             try {
-                // 1. Verifica se o e-mail já existe
-                $stmtCheck = $pdo->prepare("SELECT id FROM usuarios WHERE email = ? LIMIT 1");
+                // 1. Verifica se o e-mail já existe e o status de verificação
+                $stmtCheck = $pdo->prepare("SELECT id, nome, email_verificado FROM usuarios WHERE email = ? LIMIT 1");
                 $stmtCheck->execute([$email]);
+                $usuarioExistente = $stmtCheck->fetch(PDO::FETCH_ASSOC);
 
-                if ($stmtCheck->rowCount() > 0) {
-                    $erro = "Este e-mail já está cadastrado. Tente fazer login.";
+                if ($usuarioExistente) {
+                    if ((int)$usuarioExistente['email_verificado'] === 0) {
+                        // Conta existe mas NÃO confirmou: gera novo token e reenvia o e-mail
+                        $novoToken = bin2hex(random_bytes(32));
+                        $novoTokenExpira = date('Y-m-d H:i:s', strtotime('+24 hours'));
+
+                        $upToken = $pdo->prepare("UPDATE usuarios SET token_verificacao = ?, token_expira = ? WHERE id = ?");
+                        $upToken->execute([$novoToken, $novoTokenExpira, $usuarioExistente['id']]);
+
+                        if (file_exists(__DIR__ . '/config/brevo.php')) {
+                            require_once __DIR__ . '/config/brevo.php';
+                            if (function_exists('enviar_email_verificacao')) {
+                                enviar_email_verificacao($email, $usuarioExistente['nome'], $novoToken);
+                            }
+                        }
+
+                        header("Location: login.php?msg=email_reenviado_pendente");
+                        exit;
+                    } else {
+                        $erro = "Este e-mail já está cadastrado e ativo. Faça login na sua conta.";
+                    }
                 } else {
                     $pdo->beginTransaction();
 
@@ -115,7 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Criar Conta | vende+</title>
+    <title>Criar Conta | Vende+</title>
     
     <!-- FAVICON -->
     <link rel="icon" type="image/svg+xml" href="/assets/img/favicon.svg">
@@ -321,17 +341,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <div class="auth-container">
     <div class="auth-card">
         <!-- LOGO BRAND -->
-<div class="brand-header">
-    <a href="landing.php" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:10px;">
-        <svg width="30" height="30" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
-            <rect width="64" height="64" rx="16" fill="#09090b"/>
-            <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M52 32 L52 44 M46 38 L58 38" stroke="#10b981" stroke-width="5.5" stroke-linecap="round"/>
-        </svg>
-        <h1 class="logo-text">vende<span>+</span></h1>
-    </a>
-    <p class="brand-subtitle">Crie sua conta para começar a gerenciar</p>
-</div>
+        <div class="brand-header">
+            <a href="landing.php" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center; gap:10px;">
+                <svg width="30" height="30" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+                    <rect width="64" height="64" rx="16" fill="#09090b"/>
+                    <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M52 32 L52 44 M46 38 L58 38" stroke="#10b981" stroke-width="5.5" stroke-linecap="round"/>
+                </svg>
+                <h1 class="logo-text">vende<span>+</span></h1>
+            </a>
+            <p class="brand-subtitle">Crie sua conta para começar a gerenciar</p>
+        </div>
 
         <!-- MENSAGEM DE ERRO -->
         <?php if (!empty($erro)): ?>
