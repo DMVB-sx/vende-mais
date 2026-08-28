@@ -258,7 +258,7 @@ foreach ($todasParcelas as $p) {
         $gruposDividas[$chave] = [
             'venda_id' => $p['venda_id'],
             'cliente_nome' => $nomeLimpo,
-            'cliente_telefone' => $p['cliente_telefone'],
+            'cliente_telefone' => $p['cliente_telefone'] ?? '',
             'produto_nome' => $p['produto_nome'] ?? 'Venda direta',
             'valor_total' => 0.0,
             'valor_pago' => 0.0,
@@ -333,7 +333,6 @@ foreach ($gruposDividas as $chave => $grupo) {
 .divida-card.aberto .divida-detalhes-parcelas {
     display: block;
 }
-/* Scroll suave para abas mobile sem quebras */
 .no-scrollbar::-webkit-scrollbar {
     display: none;
 }
@@ -436,7 +435,7 @@ foreach ($gruposDividas as $chave => $grupo) {
             <input type="hidden" name="aba" value="<?= htmlspecialchars($aba_filtro) ?>">
             <div class="relative">
                 <i data-lucide="search" class="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-                <input type="text" name="busca" placeholder="Buscar cliente ou produto..." value="<?= htmlspecialchars($busca) ?>"
+                <input type="text" name="busca" placeholder="Buscar cliente, telefone ou produto..." value="<?= htmlspecialchars($busca) ?>"
                        class="pl-9 pr-4 py-2 bg-[#000000] border border-zinc-800 text-zinc-200 text-xs rounded-xl outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600 w-full">
             </div>
         </form>
@@ -494,9 +493,18 @@ foreach ($gruposDividas as $chave => $grupo) {
                                         </span>
                                     <?php endif; ?>
                                 </div>
-                                <span class="text-xs text-zinc-500 block truncate mt-0.5">
-                                    <?= htmlspecialchars($grupo['produto_nome']) ?>
-                                </span>
+                                
+                                <div class="flex items-center gap-1.5 text-xs text-zinc-500 mt-0.5 flex-wrap">
+                                    <span><?= htmlspecialchars($grupo['produto_nome']) ?></span>
+                                    
+                                    <?php if (!empty($grupo['cliente_telefone'])): ?>
+                                        <span class="text-zinc-700">•</span>
+                                        <span class="text-emerald-400/90 font-mono text-[11px] flex items-center gap-1">
+                                            <i data-lucide="phone" class="w-3 h-3"></i>
+                                            <?= htmlspecialchars($grupo['cliente_telefone']) ?>
+                                        </span>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         </div>
 
@@ -549,7 +557,11 @@ foreach ($gruposDividas as $chave => $grupo) {
                                         $valRest = max(0, $valTotal - $valPago);
                                         $statusP = $p['status'];
                                         $estaAtrasada = ($statusP !== 'pago' && $p['data_vencimento'] < $hojeData);
+                                        
                                         $telLimpo = preg_replace('/\D/', '', $p['cliente_telefone'] ?? '');
+                                        if (strlen($telLimpo) === 10 || strlen($telLimpo) === 11) {
+                                            $telLimpo = '55' . $telLimpo;
+                                        }
                                         
                                         $msgWhats = urlencode("Olá " . $grupo['cliente_nome'] . "! Passando para lembrar da parcela " . $numParc . "/" . $totalParcelasQtd . " no valor de R$ " . number_format($valRest, 2, ',', '.') . " com vencimento em " . date('d/m/Y', strtotime($p['data_vencimento'])) . ".");
                                     ?>
@@ -575,8 +587,8 @@ foreach ($gruposDividas as $chave => $grupo) {
                                             <td class="py-3 px-3 text-right">
                                                 <div class="inline-flex items-center gap-1.5">
                                                     <?php if ($valRest > 0 && !empty($telLimpo)): ?>
-                                                        <a href="https://wa.me/55<?= $telLimpo ?>?text=<?= $msgWhats ?>" target="_blank"
-                                                           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 font-semibold no-underline transition" title="Cobrar">
+                                                        <a href="https://wa.me/<?= $telLimpo ?>?text=<?= $msgWhats ?>" target="_blank"
+                                                           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 font-semibold no-underline transition" title="Cobrar via WhatsApp">
                                                             <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
                                                             <span>Cobrar</span>
                                                         </a>
@@ -613,7 +625,11 @@ foreach ($gruposDividas as $chave => $grupo) {
                                 $valRest = max(0, $valTotal - $valPago);
                                 $statusP = $p['status'];
                                 $estaAtrasada = ($statusP !== 'pago' && $p['data_vencimento'] < $hojeData);
+                                
                                 $telLimpo = preg_replace('/\D/', '', $p['cliente_telefone'] ?? '');
+                                if (strlen($telLimpo) === 10 || strlen($telLimpo) === 11) {
+                                    $telLimpo = '55' . $telLimpo;
+                                }
                                 
                                 $msgWhats = urlencode("Olá " . $grupo['cliente_nome'] . "! Passando para lembrar da parcela " . $numParc . "/" . $totalParcelasQtd . " no valor de R$ " . number_format($valRest, 2, ',', '.') . " com vencimento em " . date('d/m/Y', strtotime($p['data_vencimento'])) . ".");
                             ?>
@@ -647,8 +663,9 @@ foreach ($gruposDividas as $chave => $grupo) {
 
                                     <div class="flex items-center justify-end gap-2 pt-0.5">
                                         <?php if ($valRest > 0 && !empty($telLimpo)): ?>
-                                            <a href="https://wa.me/55<?= $telLimpo ?>?text=<?= $msgWhats ?>" target="_blank"
-                                               class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold no-underline">
+                                            <a href="https://wa.me/<?= $telLimpo ?>?text=<?= $msgWhats ?>" target="_blank"
+                                               class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold no-underline flex items-center gap-1">
+                                                <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
                                                 Cobrar
                                             </a>
                                         <?php endif; ?>
