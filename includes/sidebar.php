@@ -1,7 +1,11 @@
 <?php
+
 $nomeEmpresaExibicao = $_SESSION['empresa_nome'] ?? 'Minha Empresa';
-$docEmpresaExibicao = $_SESSION['empresa_doc'] ?? '';
-$page = $page ?? ($_GET['page'] ?? 'dashboard');
+$docEmpresaExibicao  = $_SESSION['empresa_doc'] ?? '';
+$page                = $page ?? ($_GET['page'] ?? 'dashboard');
+
+// Variável de controle de bloqueio
+$contaBloqueada = false;
 
 // Função auxiliar para formatar CPF ou CNPJ
 if (!function_exists('formatarCpfCnpj')) {
@@ -40,6 +44,28 @@ if (isset($_SESSION['empresa_id']) && isset($pdo)) {
             if (!empty($docEncontrado)) {
                 $docEmpresaExibicao = $docEncontrado;
                 $_SESSION['empresa_doc'] = $docEncontrado;
+            }
+
+            // --- LÓGICA DE BLOQUEIO DE ASSINATURA ---
+            $statusAssinatura = strtolower(trim((string)($dadosEmpresaSide['status_assinatura'] ?? '')));
+            $dataExpiracao    = $dadosEmpresaSide['data_expiracao'] ?? null;
+            $trialExpiraEm    = $dadosEmpresaSide['trial_expira_em'] ?? null;
+            $hoje             = date('Y-m-d');
+            $agora            = date('Y-m-d H:i:s');
+
+            if ($statusAssinatura !== 'vip') {
+                // 1. Status explicitamente inativo/cancelado
+                if (in_array($statusAssinatura, ['inativo', 'cancelado', 'expirado'])) {
+                    $contaBloqueada = true;
+                }
+                // 2. Período Trial acabou
+                elseif ($statusAssinatura === 'trial' && !empty($trialExpiraEm) && $trialExpiraEm < $agora) {
+                    $contaBloqueada = true;
+                }
+                // 3. Data de validade da assinatura paga passou
+                elseif (!empty($dataExpiracao) && $dataExpiracao < $hoje) {
+                    $contaBloqueada = true;
+                }
             }
         }
     } catch (Exception $e) {
@@ -144,6 +170,12 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
     font-weight: 600;
 }
 
+.nav-link.bloqueado {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
 .nav-divider {
     height: 1px;
     background-color: #18181b;
@@ -236,11 +268,79 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
         display: block;
     }
 }
+
+/* MODAL DE BLOQUEIO POR ASSINATURA INATIVA */
+.overlay-bloqueio {
+    position: fixed;
+    top: 0;
+    left: 260px;
+    right: 0;
+    bottom: 0;
+    background: rgba(9, 9, 11, 0.92);
+    backdrop-filter: blur(6px);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+@media screen and (max-width: 768px) {
+    .overlay-bloqueio {
+        left: 0;
+    }
+}
+
+.card-bloqueio {
+    background: #18181b;
+    border: 1px solid #27272a;
+    border-radius: 16px;
+    padding: 32px 24px;
+    max-width: 440px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+}
+
+.card-bloqueio h2 {
+    color: #ffffff;
+    font-size: 20px;
+    margin: 16px 0 8px;
+    font-weight: 700;
+}
+
+.card-bloqueio p {
+    color: #a1a1aa;
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0 0 24px;
+}
+
+.btn-renovar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: #10b981;
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    text-decoration: none;
+    width: 100%;
+    box-sizing: border-box;
+    transition: background 0.2s;
+}
+
+.btn-renovar:hover {
+    background: #059669;
+}
 </style>
 
 <!-- Header Mobile -->
 <div class="mobile-header">
-    <a href="index.php?page=dashboard" class="brand-wrapper">
+    <a href="index.php?page=perfil" class="brand-wrapper">
         <svg width="26" height="26" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
             <rect width="64" height="64" rx="16" fill="#09090b"/>
             <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
@@ -259,7 +359,7 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
 <aside class="sidebar" id="sidebarMenu">
     <div class="sidebar-header">
         <div style="width: 100%; overflow: hidden;">
-            <a href="index.php?page=dashboard" class="brand-wrapper">
+            <a href="index.php?page=perfil" class="brand-wrapper">
                 <svg width="28" height="28" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
                     <rect width="64" height="64" rx="16" fill="#09090b"/>
                     <path d="M14 22 L26 44 L44 16" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
@@ -277,32 +377,32 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
     </div>
 
     <nav class="sidebar-nav">
-        <a href="index.php?page=dashboard" class="nav-link <?= ($page === 'dashboard') ? 'active' : '' ?>">
+        <a href="index.php?page=dashboard" class="nav-link <?= ($page === 'dashboard') ? 'active' : '' ?> <?= $contaBloqueada ? 'bloqueado' : '' ?>">
             <i data-lucide="layout-dashboard" style="width: 18px; height: 18px;"></i>
             <span>Visão geral</span>
         </a>
 
-        <a href="index.php?page=produtos" class="nav-link <?= ($page === 'produtos') ? 'active' : '' ?>">
+        <a href="index.php?page=produtos" class="nav-link <?= ($page === 'produtos') ? 'active' : '' ?> <?= $contaBloqueada ? 'bloqueado' : '' ?>">
             <i data-lucide="package" style="width: 18px; height: 18px;"></i>
             <span>Produtos</span>
         </a>
         
-        <a href="index.php?page=vendas" class="nav-link <?= ($page === 'vendas') ? 'active' : '' ?>">
+        <a href="index.php?page=vendas" class="nav-link <?= ($page === 'vendas') ? 'active' : '' ?> <?= $contaBloqueada ? 'bloqueado' : '' ?>">
             <i data-lucide="shopping-bag" style="width: 18px; height: 18px;"></i>
             <span>Vendas</span>
         </a>
 
-        <a href="index.php?page=compras" class="nav-link <?= ($page === 'compras') ? 'active' : '' ?>">
+        <a href="index.php?page=compras" class="nav-link <?= ($page === 'compras') ? 'active' : '' ?> <?= $contaBloqueada ? 'bloqueado' : '' ?>">
             <i data-lucide="shopping-cart" style="width: 18px; height: 18px;"></i>
             <span>Compras</span>
         </a>
 
-        <a href="index.php?page=a-receber" class="nav-link <?= ($page === 'a-receber') ? 'active' : '' ?>">
+        <a href="index.php?page=a-receber" class="nav-link <?= ($page === 'a-receber') ? 'active' : '' ?> <?= $contaBloqueada ? 'bloqueado' : '' ?>">
             <i data-lucide="wallet" style="width: 18px; height: 18px;"></i>
             <span>A Receber</span>
         </a>
         
-        <a href="index.php?page=despesas" class="nav-link <?= ($page === 'despesas') ? 'active' : '' ?>">
+        <a href="index.php?page=despesas" class="nav-link <?= ($page === 'despesas') ? 'active' : '' ?> <?= $contaBloqueada ? 'bloqueado' : '' ?>">
             <i data-lucide="trending-down" style="width: 18px; height: 18px;"></i>
             <span>Despesas</span>
         </a>
@@ -320,6 +420,23 @@ $docFormatado = !empty($docEmpresaExibicao) ? formatarCpfCnpj($docEmpresaExibica
         </a>
     </nav>
 </aside>
+
+<?php if ($contaBloqueada && $page !== 'perfil'): ?>
+<!-- POPUP DE BLOQUEIO QUANDO TENTA NAVEGAR EM OUTRA PÁGINA COM STATUS INATIVO -->
+<div class="overlay-bloqueio">
+    <div class="card-bloqueio">
+        <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(239, 68, 68, 0.15); display: flex; align-items: center; justify-content: center; margin: 0 auto; color: #ef4444;">
+            <i data-lucide="shield-alert" style="width: 30px; height: 30px;"></i>
+        </div>
+        <h2>Acesso Bloqueado</h2>
+        <p>Sua assinatura encontra-se <strong>inativa</strong> ou <strong>vencida</strong>. Para continuar gerenciando seu catálogo, vendas e estoque, renove o seu plano.</p>
+        <a href="index.php?page=perfil" class="btn-renovar">
+            <i data-lucide="credit-card" style="width: 18px; height: 18px;"></i>
+            Renovar Assinatura
+        </a>
+    </div>
+</div>
+<?php endif; ?>
 
 <script>
 if (typeof lucide !== 'undefined') {

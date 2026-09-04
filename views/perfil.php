@@ -159,7 +159,7 @@ $nomeEmpresaAtual = $empresa['nome'] ?? $empresa['nome_fantasia'] ?? $empresa['r
 $userIp = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
 
 // 3. Lógica Dinâmica da Assinatura e Planos
-$statusAssinatura = $empresa['status_assinatura'] ?? 'trial';
+$statusAssinatura = strtolower(trim((string)($empresa['status_assinatura'] ?? 'trial')));
 $trialExpiraEm    = $empresa['trial_expira_em'] ?? null;
 $dataExpiracao    = $empresa['data_expiracao'] ?? null;
 $planoBanco       = $empresa['plano'] ?? $empresa['plano_nome'] ?? '';
@@ -171,6 +171,7 @@ $descPlano        = 'Acesso completo a todas as ferramentas operacionais e finan
 $rotuloVencimento = 'PRÓXIMA RENOVAÇÃO';
 $diasTexto        = '';
 $dataTexto        = '';
+$precisaRenovar   = false;
 
 if ($statusAssinatura === 'vip') {
     $tituloPlano      = 'Plano VIP';
@@ -194,49 +195,65 @@ if ($statusAssinatura === 'vip') {
         $dias       = (int)$diff->format('%r%a');
         
         if ($dataExpObj < $hojeObj) {
-            $diasTexto   = 'Expirado';
-            $badgeTexto  = 'Expirado';
-            $badgeClasse = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+            $diasTexto      = 'Expirado';
+            $badgeTexto     = 'Expirado';
+            $badgeClasse    = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+            $precisaRenovar = true;
         } elseif ($dias === 0) {
-            $diasTexto   = 'Expira hoje';
+            $diasTexto      = 'Expira hoje';
         } elseif ($dias === 1) {
-            $diasTexto   = 'em 1 dia';
+            $diasTexto      = 'em 1 dia';
         } else {
-            $diasTexto   = "em {$dias} dias";
+            $diasTexto      = "em {$dias} dias";
         }
         $dataTexto = $dataExpObj->format('d/m/Y');
     } else {
         $diasTexto = '7 dias';
         $dataTexto = 'Em andamento';
     }
-} else { // Ativo (Mensal ou Trimestral)
+} else { // Ativo ou Inativo
     $tituloPlano = !empty($planoBanco) ? 'Plano ' . htmlspecialchars($planoBanco) : 'Plano Mensal';
-    $badgeTexto  = 'Ativo';
-    $badgeClasse = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
     
-    if (!empty($dataExpiracao)) {
-        $dataExpObj = new DateTime($dataExpiracao);
-        $hojeObj    = new DateTime(date('Y-m-d'));
-        $diff       = $hojeObj->diff($dataExpObj);
-        $dias       = (int)$diff->format('%r%a');
-        
-        if ($dataExpObj < $hojeObj) {
-            $diasTexto   = 'Vencido';
-            $badgeTexto  = 'Vencido';
-            $badgeClasse = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-        } elseif ($dias === 0) {
-            $diasTexto   = 'Vence hoje';
-        } elseif ($dias === 1) {
-            $diasTexto   = 'em 1 dia';
-        } else {
-            $diasTexto   = "em {$dias} dias";
-        }
-        $dataTexto = $dataExpObj->format('d/m/Y');
+    if (in_array($statusAssinatura, ['inativo', 'cancelado', 'expirado'])) {
+        $badgeTexto     = 'Vencido';
+        $badgeClasse    = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+        $diasTexto      = 'Vencido';
+        $dataTexto      = !empty($dataExpiracao) ? (new DateTime($dataExpiracao))->format('d/m/Y') : 'Assinatura Inativa';
+        $precisaRenovar = true;
     } else {
-        $diasTexto = 'Ativo';
-        $dataTexto = '-';
+        $badgeTexto  = 'Ativo';
+        $badgeClasse = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+        
+        if (!empty($dataExpiracao)) {
+            $dataExpObj = new DateTime($dataExpiracao);
+            $hojeObj    = new DateTime(date('Y-m-d'));
+            $diff       = $hojeObj->diff($dataExpObj);
+            $dias       = (int)$diff->format('%r%a');
+            
+            if ($dataExpObj < $hojeObj) {
+                $diasTexto      = 'Vencido';
+                $badgeTexto     = 'Vencido';
+                $badgeClasse    = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+                $precisaRenovar = true;
+            } elseif ($dias === 0) {
+                $diasTexto      = 'Vence hoje';
+            } elseif ($dias === 1) {
+                $diasTexto      = 'em 1 dia';
+            } else {
+                $diasTexto      = "em {$dias} dias";
+            }
+            $dataTexto = $dataExpObj->format('d/m/Y');
+        } else {
+            $diasTexto = 'Ativo';
+            $dataTexto = '-';
+        }
     }
 }
+
+// Links com passagem dinâmica de e-mail para pré-preenchimento seguro no checkout da Cakto
+$emailParam = !empty($usuario['email']) ? '?email=' . urlencode($usuario['email']) : '';
+$linkCheckoutMensal = 'https://pay.cakto.com.br/33o9a3t_1068067' . $emailParam;
+$linkCheckoutTrimestral = 'https://pay.cakto.com.br/mifseqt_1068083' . $emailParam;
 ?>
 
 <script src="https://unpkg.com/lucide@latest"></script>
@@ -426,6 +443,28 @@ if ($statusAssinatura === 'vip') {
                     <span class="text-xs text-zinc-500 block mt-0.5"><?= $dataTexto ?></span>
                 </div>
             </div>
+
+            <?php if ($precisaRenovar): ?>
+            <!-- ÁREA DE RENOVAÇÃO / CHECKOUTS CAKTO -->
+            <div class="pt-5 pb-5 border-b border-zinc-900">
+                <div class="bg-rose-500/5 border border-rose-500/20 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <strong class="text-white text-sm block font-bold">Assinatura Inativa ou Vencida</strong>
+                        <span class="text-xs text-zinc-400 block mt-0.5">Renove seu plano para desbloquear todas as ferramentas do sistema imediatamente.</span>
+                    </div>
+                    <div class="flex items-center gap-2.5 shrink-0 flex-wrap">
+                        <a href="<?= $linkCheckoutMensal ?>" target="_blank" class="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl transition shadow-[0_0_20px_rgba(16,185,129,0.2)] no-underline cursor-pointer">
+                            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                            Renovar Mensal
+                        </a>
+                        <a href="<?= $linkCheckoutTrimestral ?>" target="_blank" class="inline-flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-xl transition no-underline cursor-pointer">
+                            <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
+                            Renovar Trimestral
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
 
             <!-- RECURSOS DO PLANO -->
             <div class="pt-6">

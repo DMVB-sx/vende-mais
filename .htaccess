@@ -1,6 +1,9 @@
 RewriteEngine On
+# Ignora regras de reescrita para arquivos reais da pasta api
+RewriteCond %{REQUEST_URI} ^/api/ [NC]
+RewriteRule ^ - [L]
 
-# Permite acesso direto a arquivos e imagens estáticas existentes
+# Permite acesso direto a arquivos e pastas existentes
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
@@ -8,8 +11,13 @@ RewriteRule ^ - [L]
 # Impede listagem de diretório
 Options -Indexes
 
-# Protege arquivos sensíveis
-<FilesMatch "\.(env|json|sql|log)$">
-    Order allow,deny
-    Deny from all
+# Protege apenas arquivos sensíveis (sem bloquear manifest.json)
+<FilesMatch "\.(env|sql|log|md|git.*)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
 </FilesMatch>
